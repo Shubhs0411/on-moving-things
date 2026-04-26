@@ -1,29 +1,227 @@
-# On Moving Things
+# FreightMind AI
 
-Every object around you moved through a chain of decisions, machines, and people to get where it is. Most of it came through a truck. In the United States, roughly 72% of freight moves by truck. The entire physical economy — groceries, medicine, fuel, electronics, construction materials, the mail — runs on that flow.
+**Multi-agent transportation compliance intelligence.**  
+FMCSA · DOT · CSA · 49 CFR — answered in seconds, cited to the paragraph.
 
-The flow is not inevitable. It works because a set of rules, checks, and signals keeps it working. Drivers are medically qualified. Vehicles are inspected. Companies hold operating authority. Drug tests happen. Hours of service are tracked. Insurance is current. When any of those fail, things don't move — or they move and someone gets hurt.
+---
 
-This layer — compliance and safety — is what makes modern civilization's physical backbone possible. It is usually invisible. When it works, nobody thinks about it. When it breaks, it becomes the only story.
+## What This Is
 
-Compliance knowledge is also a moat. The regulations — FMCSA, DOT, FCRA, state-by-state variation, CSA scoring, clearinghouse rules, driver qualification files — are not intuitive. They compound. A company that understands them at depth can serve an industry that cannot afford to get them wrong. That kind of knowledge does not commoditize.
+Every day, shippers, brokers, and carriers make decisions under pressure with incomplete information:
+- *Is this carrier safe to use?*
+- *Can this driver legally operate today?*
+- *What's driving our CSA score up, and how do we fix it?*
+- *What does 49 CFR 395.3(a)(1) actually say?*
 
-At the same time, the world is rearranging. Supply chains optimized for a single equilibrium are being rewritten in real time. Tariffs, re-shoring, the energy transition, a structural driver shortage, autonomous vehicles, insurance-market cycles, immigration policy — each of these rewrites the trucking economy. Compliance has to adapt to each one in real time. It usually doesn't.
+FreightMind is a multi-agent AI system that answers those questions instantly, with citations, with reasoning shown, and with a feedback loop that knows whether the answers are right.
 
-The deeper shift is that AI is rewriting what a functioning business looks like. Not as a feature added to existing software. As a replacement for the cognitive work the old software was built to support. Three things matter in that transition.
+---
 
-**Systems of understanding.** The world does not enter a business as data. It enters as signals, fragments, documents, conversations, regulatory filings, phone calls, tacit judgment. A business that can structure those fragments into knowledge — in a form a machine can reason over and a human can trust — sees further than one that can't. Ontology, graph, semantic layer, retrieval architecture. The eye of the system.
+## The Three Systems
 
-**Systems of velocity.** Understanding is inert without the ability to act on it quickly. A business that can ship a working agent in a day, instrument it, watch it run, and change it tomorrow has a different metabolism than one that ships quarterly. Composable agents, rapid deployment, pipelines that snap together and come apart. The limbs of the system.
+Directly mirroring the architecture described in *On Moving Things*:
 
-**Systems of continuous improvement.** Neither of the above compounds without feedback. Every deployed system has to know, in real time, whether it is working — and what to change when it isn't. Eval harnesses, observability, instrumented feedback, governance. The nervous system.
+### System of Understanding — The Eye
+Regulations don't enter as data. They enter as PDFs, interpretive guidance, state variations, and compound rules that interact in non-obvious ways. FreightMind structures those fragments into a **semantic knowledge graph** (ChromaDB) over FMCSA HOS, Driver Qualification, CSA scoring, and operating authority rules. Every answer is grounded in retrieved regulatory text with CFR citations.
 
-A company that builds all three — and uses them to reason about a domain as intricate as transportation compliance — does something the old model of "buying software" cannot reproduce.
+```
+data/regulations/
+├── fmcsa_hos.md          # 49 CFR Part 395 — Hours of Service
+├── fmcsa_driver_qual.md  # 49 CFR Part 391 — Driver Qualification Files
+├── csa_scoring.md        # CSA BASIC scoring methodology
+└── operating_authority.md # 49 CFR Parts 365/387 — Authority & Insurance
+```
 
-Behind every movement, every decision, every regulatory filing, there is a person weighing risk with incomplete information under pressure. The shipper choosing a carrier. The carrier hiring a driver. The driver accepting a load. The underwriter pricing a policy. The regulator deciding what to audit. The question underneath everything: how do people decide, what signals do they actually trust, and how can we give them better ones?
+### System of Velocity — The Limbs
+Four specialist agents, composable tools, routed by a LangGraph state machine. A new agent can be added in an afternoon. The router runs in a single Claude call. The whole system is FastAPI endpoints.
 
-This is the space where AI either bureaucratizes things further — more forms, more middleware that makes life worse — or makes decisions genuinely smarter: faster, more grounded in reality, closer to the people who need them. The difference is not the model. It's the person building.
+```
+User Query
+    │
+    ▼
+Router (claude-sonnet-4-6, one call, classifies intent)
+    │
+    ├──► CarrierVettingAgent    — DOT lookup, CSA scores, crash history
+    ├──► DriverQualAgent        — CDL, medical cert, Clearinghouse, DQ file
+    ├──► CSAScoringAgent        — BASIC percentiles, improvement plans
+    └──► ComplianceOracleAgent  — RAG over regulations, full CFR citations
+    │
+    ▼
+Synthesizer (formats, ensures citations, adds urgency signal)
+    │
+    ▼
+Response
+```
 
-Foley sits in this space.
+### System of Continuous Improvement — The Nervous System
+Every agent call is traced. Every trace is scored against 25 ground-truth eval cases. The eval harness runs on-demand or in CI. Pass rate is visible in real time.
 
-We are not hiring in any particular sense. We are looking for the person who reads this and knows what to do next.
+```
+AgentTracer → traces_YYYYMMDD.jsonl
+EvalHarness → evals/results/eval_TIMESTAMP.json
+    25 cases × 5 categories × precision-scored
+```
+
+---
+
+## Stack
+
+| Component | Technology | Why |
+|-----------|-----------|-----|
+| LLM | Anthropic Claude (`claude-opus-4-7`, `claude-sonnet-4-6`) | Opus for deep regulation Q&A; Sonnet for speed/cost on routing and vetting |
+| Agent orchestration | LangGraph 0.3+ | State machine for multi-agent routing, memory, conditional edges |
+| Vector store | ChromaDB | Local-first, zero-infra, cosine similarity over regulatory chunks |
+| API | FastAPI | REST endpoints, automatic OpenAPI docs |
+| CLI | Rich + Typer | Conference-ready terminal demo |
+| Data models | Pydantic v2 | Typed compliance domain entities |
+| Observability | Custom JSONL tracer | Every tool call, token count, latency — persisted |
+| Eval | Custom harness | 25 cases, keyword recall + citation recall + status accuracy |
+
+---
+
+## Quick Start
+
+```bash
+# 1. Install
+pip install -e ".[dev]"
+
+# 2. Configure
+cp .env.example .env
+# Add your ANTHROPIC_API_KEY to .env
+
+# 3. Run interactive demo
+python demo/cli.py interactive
+
+# 4. Run scripted demo (5 queries, all agent types)
+python demo/cli.py demo
+
+# 5. Run eval harness
+python demo/cli.py eval
+
+# 6. Start API server
+uvicorn src.api.main:app --reload
+# Docs at http://localhost:8000/docs
+```
+
+---
+
+## Demo Queries
+
+These queries exercise every agent in the system:
+
+```bash
+# Carrier vetting — dangerous carrier
+python demo/cli.py query "Run a safety check on DOT 2345678 before I tender a hazmat load."
+
+# Driver qual — disqualified driver  
+python demo/cli.py query "Check driver CDL-OH-005678. Can they drive today?"
+
+# CSA improvement
+python demo/cli.py query "DOT 2345678 has HOS score 82.1. What violations are driving this?"
+
+# Regulation Q&A
+python demo/cli.py query "How does the 34-hour restart work? What are the 1am-5am requirements?"
+
+# Risk assessment
+python demo/cli.py query "New carrier, 5 trucks, unrated, 12 inspections. How do I evaluate risk?"
+```
+
+---
+
+## API Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/v1/compliance/query` | Main compliance Q&A endpoint |
+| `POST` | `/v1/carrier/vet?dot_number=X` | Direct carrier vetting |
+| `POST` | `/v1/driver/qualify?license_number=X` | Direct driver qualification check |
+| `GET` | `/v1/observability/stats` | Real-time session metrics |
+| `GET` | `/v1/observability/traces` | Recent agent traces |
+| `POST` | `/v1/eval/run` | Run eval harness |
+| `POST` | `/v1/knowledge/search` | Direct knowledge base search |
+
+---
+
+## Eval Harness
+
+25 test cases across 5 domains:
+
+| Domain | Cases | What's Tested |
+|--------|-------|---------------|
+| `carrier_vetting` | 5 | Operating authority, CSA alerts, inactive carriers, fatal crashes |
+| `driver_qualification` | 5 | CDL validity, Clearinghouse PROHIBITED, refused drug test, DQ file gaps |
+| `csa_scoring` | 5 | BASIC thresholds, improvement plans, root-cause analysis |
+| `regulation_lookup` | 6 | HOS limits, ELD exemptions, 34-hour restart, sleeper berth, insurance minimums |
+| `risk_assessment` | 4 | New entrants, multi-domain queries, broker checklist |
+
+Scoring: `0.5 × keyword_recall + 0.2 × citation_recall + 0.15 × status_accuracy + 0.15 × risk_accuracy`  
+Pass threshold: ≥ 0.60
+
+```bash
+# Run all 25 cases
+python demo/cli.py eval
+
+# Run just driver qualification cases
+python demo/cli.py eval --category driver_qualification
+```
+
+---
+
+## Project Structure
+
+```
+freightmind-ai/
+├── src/
+│   ├── models/domain.py          # Pydantic entities: Carrier, Driver, CSAScore, ComplianceReport
+│   ├── knowledge/
+│   │   ├── regulations.py        # Document loader + chunker
+│   │   └── vectorstore.py        # ChromaDB: ingest, search, RAG context
+│   ├── agents/
+│   │   ├── base.py               # Agentic loop, tracing, tool dispatch
+│   │   ├── compliance_oracle.py  # Regulatory Q&A (claude-opus-4-7)
+│   │   ├── carrier_vetting.py    # Carrier safety checks
+│   │   ├── driver_qual.py        # Driver qualification (49 CFR 391)
+│   │   └── csa_scoring.py        # CSA BASIC interpretation
+│   ├── graph/orchestrator.py     # LangGraph: router → agent → synthesizer
+│   ├── eval/
+│   │   ├── harness.py            # Scoring + persistence
+│   │   └── test_cases.py         # 25 ground-truth eval cases
+│   ├── observability/tracer.py   # JSONL tracing + session metrics
+│   └── api/main.py               # FastAPI REST endpoints
+├── data/
+│   ├── regulations/              # FMCSA/DOT knowledge documents
+│   └── mock/                     # Carrier + driver test fixtures
+├── demo/cli.py                   # Rich terminal demo + CLI
+├── evals/results/                # Eval run outputs
+└── pyproject.toml
+```
+
+---
+
+## Domain Coverage
+
+- **Hours of Service (HOS):** 11-hour driving limit, 14-hour window, 60/70-hour rule, 34-hour restart, sleeper berth, ELD requirements and exemptions
+- **Driver Qualification:** CDL classes/endorsements, medical certification, FMCSA National Registry, Drug & Alcohol Clearinghouse, DQ file requirements (49 CFR 391.51)
+- **CSA Scoring:** All 7 BASICs, intervention thresholds, time-weighting, DataQs process, improvement planning
+- **Operating Authority:** MC/DOT registration, SAFER lookup, insurance minimums by commodity type, new entrant requirements
+- **Drug & Alcohol:** Pre-employment/annual Clearinghouse queries, prohibited status, Return-to-Duty process
+
+---
+
+## Design Principles
+
+**Grounded, not hallucinated.** Every regulation answer is retrieved from the knowledge base before Claude responds. The system knows what it doesn't know.
+
+**Composable.** Adding a new agent (e.g., HazMat specialist, insurance underwriting agent) requires one new file and two lines in the LangGraph graph.
+
+**Observable.** Every call is traced. Latency, tokens, tool calls, errors — all visible. The eval harness runs on the same live system, not a mock.
+
+**Direct.** The person asking these questions is making a real decision under pressure. The system gives a clear answer, not a hedge.
+
+---
+
+## Author
+
+**Shubham Deshmukh**  
+MS Computer Science, Virginia Tech  
+[github.com/Shubhs0411](https://github.com/Shubhs0411) · [linkedin.com/in/shubhdesh](https://linkedin.com/in/shubhdesh)
