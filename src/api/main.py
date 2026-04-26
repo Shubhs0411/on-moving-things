@@ -3,6 +3,9 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
+from dotenv import load_dotenv
+load_dotenv()  # load .env before any module reads os.getenv at import time
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
