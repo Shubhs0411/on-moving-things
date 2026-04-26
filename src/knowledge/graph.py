@@ -177,15 +177,26 @@ class FreightKnowledgeGraph:
                          violation_count=len(violations))
         if carrier_node not in self._g:
             self._g.add_node(carrier_node, type="Carrier", dot_number=dot_number)
-        self._g.add_edge(carrier_node, ins_node, rel="RECEIVED")
+        if not self._has_rel_edge(carrier_node, ins_node, "RECEIVED"):
+            self._g.add_edge(carrier_node, ins_node, rel="RECEIVED")
 
         for v in violations:
             viol_node = f"violation:{inspection_id}:{v['code']}"
             reg_node = f"regulation:{v['citation']}"
             self._g.add_node(viol_node, type="Violation", **v, date=inspection_date)
             self._g.add_node(reg_node, type="Regulation", citation=v["citation"])
-            self._g.add_edge(ins_node, viol_node, rel="FOUND")
-            self._g.add_edge(viol_node, reg_node, rel="CITES")
+            if not self._has_rel_edge(ins_node, viol_node, "FOUND"):
+                self._g.add_edge(ins_node, viol_node, rel="FOUND")
+            if not self._has_rel_edge(viol_node, reg_node, "CITES"):
+                self._g.add_edge(viol_node, reg_node, rel="CITES")
+
+    def _has_rel_edge(self, src: str, dst: str, rel: str) -> bool:
+        if not self._g.has_edge(src, dst):
+            return False
+        for _, attrs in self._g.get_edge_data(src, dst).items():
+            if attrs.get("rel") == rel:
+                return True
+        return False
 
     # ── Queries ────────────────────────────────────────────────────────────────
 

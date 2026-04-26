@@ -80,6 +80,23 @@ class FMCSAClient:
         except Exception as e:
             return [{"error": str(e)}]
 
+    def get_recent_inspections(self, dot_number: str) -> list[dict[str, Any]]:
+        """
+        Fetch recent inspections for a carrier.
+
+        FMCSA response shapes vary by endpoint and account scope, so this
+        method normalizes known variants into a stable internal format.
+        """
+        if not self._key:
+            return self._get_mock_inspections(dot_number)
+        try:
+            live = self._fetch_inspections_live(dot_number)
+            if live:
+                return live
+            return self._get_mock_inspections(dot_number)
+        except Exception:
+            return self._get_mock_inspections(dot_number)
+
     # ── Live FMCSA API calls ───────────────────────────────────────────────────
 
     def _fetch_carrier_live(self, dot_number: str) -> dict[str, Any]:
@@ -98,6 +115,36 @@ class FMCSAClient:
             resp.raise_for_status()
             data = resp.json()
         return self._normalize_basics(data, dot_number)
+
+    def _fetch_inspections_live(self, dot_number: str) -> list[dict[str, Any]]:
+        # FMCSA web-services can expose inspection history via different paths
+        # depending on endpoint version/tenant. Try known variants in order.
+        candidates = [
+            f"{FMCSA_BASE}/carriers/{dot_number}/inspections?webKey={self._key}",
+            f"{FMCSA_BASE}/inspections/{dot_number}?webKey={self._key}",
+            f"{FMCSA_BASE}/inspections?dotNumber={dot_number}&webKey={self._key}",
+            f"{FMCSA_BASE}/carriers/{dot_number}/inspectionhistory?webKey={self._key}",
+        ]
+
+        with httpx.Client(timeout=self._timeout) as client:
+            last_error: Exception | None = None
+            for url in candidates:
+                try:
+                    resp = client.get(url)
+                    if resp.status_code == 404:
+                        continue
+                    resp.raise_for_status()
+                    data = resp.json()
+                    normalized = self._normalize_inspections(data, dot_number)
+                    if normalized:
+                        return normalized
+                except Exception as e:
+                    last_error = e
+                    continue
+
+        if last_error:
+            raise last_error
+        return []
 
     # ── Response normalisation (FMCSA → our model) ────────────────────────────
 
@@ -153,6 +200,81 @@ class FMCSAClient:
             carriers = [carriers]
         return [{"carrier": self._normalize_carrier({"carrier": c}, c.get("dotNumber", "")), "_source": "fmcsa_live"} for c in carriers]
 
+    def _normalize_inspections(self, data: dict[str, Any], dot_number: str) -> list[dict[str, Any]]:
+        content = data.get("content", data)
+        raw_items = (
+            content.get("inspections")
+            or content.get("inspection")
+            or content.get("inspectionHistory")
+            or content.get("inspection_history")
+            or []
+        )
+        if isinstance(raw_items, dict):
+            raw_items = [raw_items]
+
+        normalized: list[dict[str, Any]] = []
+        for i, ins in enumerate(raw_items):
+            inspection_id = str(
+                ins.get("inspectionId")
+                or ins.get("inspection_id")
+                or ins.get("id")
+                or f"FMCSA-{dot_number}-{i}"
+            )
+            inspection_date = (
+                ins.get("inspectionDate")
+                or ins.get("inspection_date")
+                or ins.get("date")
+                or ""
+            )
+            level = ins.get("inspectionLevel") or ins.get("level")
+
+            raw_violations = ins.get("violations") or ins.get("violation") or []
+            if isinstance(raw_violations, dict):
+                raw_violations = [raw_violations]
+
+            violations: list[dict[str, Any]] = []
+            for j, v in enumerate(raw_violations):
+                code = str(v.get("code") or v.get("violationCode") or f"UNK-{j}")
+                citation = (
+                    v.get("citation")
+                    or v.get("regulation")
+                    or v.get("section")
+                    or "UNKNOWN"
+                )
+                description = (
+                    v.get("description")
+                    or v.get("violationDesc")
+                    or v.get("desc")
+                    or "Violation"
+                )
+                severity = v.get("severity") or v.get("severityScore") or 5
+                try:
+                    severity = int(severity)
+                except Exception:
+                    severity = 5
+                violations.append(
+                    {
+                        "code": code,
+                        "citation": str(citation),
+                        "description": str(description),
+                        "severity": severity,
+                    }
+                )
+
+            normalized.append(
+                {
+                    "inspection_id": inspection_id,
+                    "dot_number": dot_number,
+                    "inspection_date": str(inspection_date),
+                    "level": level,
+                    "oos_driver": bool(ins.get("oosDriver") or ins.get("driver_oos") or False),
+                    "oos_vehicle": bool(ins.get("oosVehicle") or ins.get("vehicle_oos") or False),
+                    "violations": violations,
+                    "_source": "fmcsa_live",
+                }
+            )
+        return normalized
+
     # ── Mock fallback ──────────────────────────────────────────────────────────
 
     def _get_mock(self, dot_number: str) -> dict[str, Any]:
@@ -170,6 +292,28 @@ class FMCSAClient:
             "csa_scores": carrier.get("csa_scores"),
             "_source": "mock",
         }
+
+    def _get_mock_inspections(self, dot_number: str) -> list[dict[str, Any]]:
+        path = DATA_DIR / "mock" / "inspections.json"
+        if not path.exists():
+            return []
+        inspections = []
+        for ins in json.loads(path.read_text()):
+            if str(ins.get("dot_number", "")) != str(dot_number):
+                continue
+            inspections.append(
+                {
+                    "inspection_id": ins.get("inspection_id"),
+                    "dot_number": str(dot_number),
+                    "inspection_date": ins.get("inspection_date", ""),
+                    "level": ins.get("level"),
+                    "oos_driver": bool(ins.get("oos_driver", False)),
+                    "oos_vehicle": bool(ins.get("oos_vehicle", False)),
+                    "violations": ins.get("violations", []),
+                    "_source": "mock",
+                }
+            )
+        return inspections
 
     # ── Convenience ────────────────────────────────────────────────────────────
 

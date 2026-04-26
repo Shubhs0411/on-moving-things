@@ -116,11 +116,13 @@ Be direct. A shipper needs a clear answer, not a hedge."""
             return json.dumps(carrier_data, default=str)
 
         if tool_name == "get_graph_context":
+            sync_info = self._sync_graph_with_fmcsa(dot)
             context = self._graph.get_graph_context_for_carrier(dot)
             top_regs = self._graph.get_top_cited_regulations(dot)
             return json.dumps({
                 "graph_summary": context,
                 "top_cited_regulations": top_regs,
+                "sync_info": sync_info,
                 "note": "Knowledge graph: relational facts from inspection/violation history.",
             }, default=str)
 
@@ -156,6 +158,7 @@ Be direct. A shipper needs a clear answer, not a hedge."""
             })
 
         if tool_name == "calculate_risk_score":
+            self._sync_graph_with_fmcsa(dot)
             carrier_data = self._fmcsa.get_carrier(dot)
             if not carrier_data or carrier_data.get("operating_status") == "UNKNOWN":
                 return json.dumps({"error": f"DOT {dot} not found or no data available"})
@@ -235,3 +238,38 @@ Be direct. A shipper needs a clear answer, not a hedge."""
             })
 
         return f"Unknown tool: {tool_name}"
+
+    def _sync_graph_with_fmcsa(self, dot_number: str) -> dict[str, Any]:
+        """
+        Hydrate graph nodes with live FMCSA carrier/inspection data when available.
+        Falls back gracefully to mock records if live inspection history is not exposed.
+        """
+        carrier = self._fmcsa.get_carrier(dot_number)
+        source = carrier.get("_source", "unknown")
+
+        # Keep graph schema-friendly naming while preserving all FMCSA scalar fields.
+        graph_carrier = {
+            **carrier,
+            "name": carrier.get("legal_name") or carrier.get("name") or f"Carrier {dot_number}",
+            "dot_number": str(carrier.get("dot_number", dot_number)),
+        }
+        self._graph.add_carrier(graph_carrier)
+
+        inspections = self._fmcsa.get_recent_inspections(dot_number)
+        added = 0
+        for ins in inspections:
+            self._graph.add_inspection_with_violations(
+                dot_number=str(ins.get("dot_number", dot_number)),
+                inspection_id=str(ins.get("inspection_id", "")),
+                inspection_date=str(ins.get("inspection_date", "")),
+                violations=ins.get("violations", []),
+                oos_driver=bool(ins.get("oos_driver", False)),
+                oos_vehicle=bool(ins.get("oos_vehicle", False)),
+            )
+            added += 1
+
+        return {
+            "carrier_source": source,
+            "inspections_synced": added,
+            "inspection_source": inspections[0].get("_source", "none") if inspections else "none",
+        }
