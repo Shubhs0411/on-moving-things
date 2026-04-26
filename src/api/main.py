@@ -164,17 +164,93 @@ def list_eval_cases(category: str | None = None):
 
 @app.get("/v1/knowledge/stats")
 def knowledge_stats():
-    """Knowledge base stats — how many regulation chunks are indexed."""
+    """Knowledge base + graph stats."""
     from src.knowledge.vectorstore import FreightKnowledgeBase
+    from src.knowledge.graph import get_graph
     kb = FreightKnowledgeBase()
-    return {"chunks_indexed": kb.count, "collections": ["freight_regulations"]}
+    graph = get_graph()
+    return {
+        "vector_store": {"chunks_indexed": kb.count, "collections": ["freight_regulations"]},
+        "knowledge_graph": graph.stats(),
+    }
 
 
 @app.post("/v1/knowledge/search")
 def search_knowledge(query: str, category: str | None = None, n_results: int = 5):
-    """Direct semantic search over the regulation knowledge base."""
+    """Semantic search over the regulation knowledge base (ChromaDB)."""
     from src.knowledge.vectorstore import FreightKnowledgeBase
     kb = FreightKnowledgeBase()
     kb.ingest()
     results = kb.search(query=query, n_results=n_results, category_filter=category)
     return results
+
+
+# ── Knowledge Graph endpoints ──────────────────────────────────────────────────
+
+@app.get("/v1/graph/carrier/{dot_number}")
+def graph_carrier(dot_number: str):
+    """Get knowledge graph facts for a carrier: violation history, top regulations."""
+    from src.knowledge.graph import get_graph
+    graph = get_graph()
+    return {
+        "violation_history": graph.get_carrier_violation_history(dot_number),
+        "top_cited_regulations": graph.get_top_cited_regulations(dot_number),
+        "context_summary": graph.get_graph_context_for_carrier(dot_number),
+    }
+
+
+@app.get("/v1/graph/driver/{license_number}")
+def graph_driver(license_number: str):
+    """Get knowledge graph facts for a driver: compliance chain, violations."""
+    from src.knowledge.graph import get_graph
+    graph = get_graph()
+    return graph.get_driver_compliance_chain(license_number)
+
+
+@app.get("/v1/graph/regulation/{citation:path}")
+def graph_regulation(citation: str):
+    """Find all carriers who have been cited for a specific CFR section."""
+    from src.knowledge.graph import get_graph
+    graph = get_graph()
+    return graph.find_carriers_with_violation(citation)
+
+
+# ── Document ingestion endpoints ───────────────────────────────────────────────
+
+@app.post("/v1/ingest/text")
+def ingest_text(text: str, title: str = "Document", category: str = "REGULATION"):
+    """Ingest raw text into the knowledge base."""
+    from src.knowledge.ingester import DocumentIngester
+    ingester = DocumentIngester()
+    return ingester.ingest_text(text, title=title, category=category)
+
+
+@app.post("/v1/ingest/inspection")
+def ingest_inspection(report: dict):
+    """Ingest a structured inspection report into KB + knowledge graph."""
+    from src.knowledge.ingester import DocumentIngester
+    from src.knowledge.graph import get_graph
+    graph = get_graph()
+    ingester = DocumentIngester(graph=graph)
+    return ingester.ingest_inspection_report(report)
+
+
+# ── FMCSA API passthrough ──────────────────────────────────────────────────────
+
+@app.get("/v1/fmcsa/carrier/{dot_number}")
+def fmcsa_carrier(dot_number: str):
+    """Live FMCSA carrier lookup (falls back to mock if FMCSA_WEB_KEY not set)."""
+    from src.knowledge.fmcsa_api import FMCSAClient
+    client = FMCSAClient()
+    return {
+        "carrier": client.get_carrier(dot_number),
+        "csa_basics": client.get_carrier_basics(dot_number),
+        "data_source": "live_fmcsa" if client.is_live() else "mock",
+    }
+
+
+@app.get("/v1/fmcsa/status")
+def fmcsa_status():
+    """FMCSA API client status — live vs mock mode."""
+    from src.knowledge.fmcsa_api import FMCSAClient
+    return FMCSAClient().status()

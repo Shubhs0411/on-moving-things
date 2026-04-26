@@ -1,0 +1,78 @@
+[
+  {
+    "inspection_id": "INS-2025-001",
+    "dot_number": "2345678",
+    "driver_license": "CDL-OH-005678",
+    "inspection_date": "2025-10-15",
+    "level": 1,
+    "oos_driver": true,
+    "oos_vehicle": false,
+    "violations": [
+      {"code": "395.3A1", "citation": "49 CFR 395.3(a)(1)", "description": "Driving beyond 11-hour limit", "severity": 7},
+      {"code": "395.8E",  "citation": "49 CFR 395.8(e)",    "description": "False log/record of duty status", "severity": 10}
+    ]
+  },
+  {
+    "inspection_id": "INS-2025-002",
+    "dot_number": "2345678",
+    "driver_license": "CDL-OH-005678",
+    "inspection_date": "2025-12-03",
+    "level": 2,
+    "oos_driver": true,
+    "oos_vehicle": true,
+    "violations": [
+      {"code": "393.47",  "citation": "49 CFR 393.47",      "description": "Brakes out of adjustment", "severity": 8},
+      {"code": "392.4A",  "citation": "49 CFR 392.4(a)",    "description": "Driver under influence of controlled substance", "severity": 10},
+      {"code": "382.301", "citation": "49 CFR 382.301",     "description": "Pre-employment testing violation", "severity": 9}
+    ]
+  },
+  {
+    "inspection_id": "INS-2025-003",
+    "dot_number": "2345678",
+    "driver_license": null,
+    "inspection_date": "2026-01-18",
+    "level": 2,
+    "oos_driver": false,
+    "oos_vehicle": true,
+    "violations": [
+      {"code": "393.75A", "citation": "49 CFR 393.75(a)", "description": "Tire — flat and/or audible air leak", "severity": 6},
+      {"code": "393.9A",  "citation": "49 CFR 393.9(a)",  "description": "Inoperable required lamps", "severity": 2},
+      {"code": "393.47D", "citation": "49 CFR 393.47(d)", "description": "Brake-stroke adjustment — brake out of adjustment", "severity": 8}
+    ]
+  },
+  {
+    "inspection_id": "INS-2025-004",
+    "dot_number": "1234567",
+    "driver_license": "CDL-TX-001234",
+    "inspection_date": "2025-09-22",
+    "level": 3,
+    "oos_driver": false,
+    "oos_vehicle": false,
+    "violations": [
+      {"code": "392.16",  "citation": "49 CFR 392.16",    "description": "No seat belt used by driver", "severity": 7}
+    ]
+  },
+  {
+    "inspection_id": "INS-2025-005",
+    "dot_number": "4567890",
+    "driver_license": "CDL-NY-007890",
+    "inspection_date": "2026-02-10",
+    "level": 1,
+    "oos_driver": false,
+    "oos_vehicle": false,
+    "violations": []
+  },
+  {
+    "inspection_id": "INS-2026-001",
+    "dot_number": "5678901",
+    "driver_license": null,
+    "inspection_date": "2026-03-05",
+    "level": 2,
+    "oos_driver": false,
+    "oos_vehicle": false,
+    "violations": [
+      {"code": "392.4B",  "citation": "49 CFR 392.4(b)",  "description": "Possession of controlled substance", "severity": 6},
+      {"code": "382.305", "citation": "49 CFR 382.305",   "description": "Random controlled substances testing violation", "severity": 9}
+    ]
+  }
+]

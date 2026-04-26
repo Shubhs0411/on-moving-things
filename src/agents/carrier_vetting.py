@@ -3,7 +3,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from src.knowledge.regulations import RegulationLoader
+from src.knowledge.fmcsa_api import FMCSAClient
+from src.knowledge.graph import get_graph
 from src.models.domain import (
     Carrier, CSAScore, ComplianceReport, ComplianceStatus, Finding, RiskLevel
 )
@@ -12,19 +13,19 @@ from .base import BaseComplianceAgent
 
 class CarrierVettingAgent(BaseComplianceAgent):
     """
-    Carrier safety vetting agent. Checks operating authority, insurance,
-    safety rating, CSA scores, and crash history for a given DOT number.
+    Carrier safety vetting agent.
+    Data sources (in priority order):
+      1. FMCSA SAFER API (live, when FMCSA_WEB_KEY is set)
+      2. Mock data (demo mode)
+      3. Knowledge graph (violation history, driver linkage)
     """
 
     name = "carrier_vetting"
 
     def __init__(self) -> None:
         super().__init__()
-        loader = RegulationLoader()
-        raw_carriers = loader.load_carriers()
-        self._carriers: dict[str, dict[str, Any]] = {
-            c["dot_number"]: c for c in raw_carriers
-        }
+        self._fmcsa = FMCSAClient()
+        self._graph = get_graph()
 
     @property
     def system_prompt(self) -> str:
@@ -33,10 +34,11 @@ class CarrierVettingAgent(BaseComplianceAgent):
 Your job: Evaluate motor carriers for compliance and safety risk before a shipper or broker engages them.
 
 Process:
-1. Call lookup_carrier with the DOT number
-2. Call check_csa_scores to interpret CSA BASIC percentile scores
-3. Call calculate_risk_score to get structured risk assessment
-4. Synthesize findings into a clear recommendation
+1. Call lookup_carrier with the DOT number (fetches from FMCSA API or mock)
+2. Call get_graph_context to pull violation history and driver linkage from the knowledge graph
+3. Call check_csa_scores to interpret CSA BASIC percentile scores
+4. Call calculate_risk_score to get structured risk assessment
+5. Synthesize findings into a clear recommendation
 
 Output format:
 - Overall status: COMPLIANT / NON_COMPLIANT / CONDITIONAL
@@ -51,11 +53,22 @@ Be direct. A shipper needs a clear answer, not a hedge."""
         return [
             {
                 "name": "lookup_carrier",
-                "description": "Look up carrier data by DOT number. Returns operating authority, insurance, safety rating, and inspection history.",
+                "description": "Look up carrier data by DOT number via FMCSA API (live) or mock. Returns authority, insurance, safety rating.",
                 "input_schema": {
                     "type": "object",
                     "properties": {
                         "dot_number": {"type": "string", "description": "FMCSA DOT number"}
+                    },
+                    "required": ["dot_number"],
+                },
+            },
+            {
+                "name": "get_graph_context",
+                "description": "Query the knowledge graph for a carrier's full violation history, most-cited regulations, and linked drivers. Returns relational facts RAG cannot provide.",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "dot_number": {"type": "string"}
                     },
                     "required": ["dot_number"],
                 },
@@ -92,14 +105,30 @@ Be direct. A shipper needs a clear answer, not a hedge."""
         dot = tool_input.get("dot_number", "")
 
         if tool_name == "lookup_carrier":
-            carrier_data = self._carriers.get(dot)
+            carrier_data = self._fmcsa.get_carrier(dot)
             if not carrier_data:
                 return json.dumps({"error": f"No carrier found for DOT {dot}"})
+            # Supplement with CSA basics
+            basics = self._fmcsa.get_carrier_basics(dot)
+            if basics.get("csa_scores"):
+                carrier_data["csa_scores"] = basics["csa_scores"]
+            carrier_data["_data_source"] = carrier_data.get("_source", "mock")
             return json.dumps(carrier_data, default=str)
 
+        if tool_name == "get_graph_context":
+            context = self._graph.get_graph_context_for_carrier(dot)
+            top_regs = self._graph.get_top_cited_regulations(dot)
+            return json.dumps({
+                "graph_summary": context,
+                "top_cited_regulations": top_regs,
+                "note": "Knowledge graph: relational facts from inspection/violation history.",
+            }, default=str)
+
         if tool_name == "check_csa_scores":
-            carrier_data = self._carriers.get(dot)
-            if not carrier_data or not carrier_data.get("csa_scores"):
+            basics = self._fmcsa.get_carrier_basics(dot)
+            carrier_data = self._fmcsa.get_carrier(dot)
+            scores = basics.get("csa_scores") or carrier_data.get("csa_scores")
+            if not scores:
                 return json.dumps({"status": "No CSA data available"})
 
             scores = carrier_data["csa_scores"]
@@ -129,13 +158,30 @@ Be direct. A shipper needs a clear answer, not a hedge."""
             })
 
         if tool_name == "calculate_risk_score":
-            carrier_data = self._carriers.get(dot)
-            if not carrier_data:
-                return json.dumps({"error": f"DOT {dot} not found"})
+            carrier_data = self._fmcsa.get_carrier(dot)
+            if not carrier_data or carrier_data.get("operating_status") == "UNKNOWN":
+                return json.dumps({"error": f"DOT {dot} not found or no data available"})
 
-            carrier = Carrier(**carrier_data)
+            # Build Carrier model — only pass fields the model knows about
+            _safe = {
+                k: v for k, v in carrier_data.items()
+                if k in Carrier.model_fields and not k.startswith("_")
+            }
+            # Attach CSA scores if available
+            basics = self._fmcsa.get_carrier_basics(dot)
+            raw_scores = basics.get("csa_scores") or carrier_data.get("csa_scores")
+            if raw_scores and isinstance(raw_scores, dict):
+                _safe["csa_scores"] = {k: v for k, v in raw_scores.items() if v is not None}
+            carrier = Carrier(**_safe)
             risk_factors = []
             risk_score = 0.0
+
+            # Add graph-derived risk factors
+            graph_violations = self._graph.get_carrier_violation_history(dot)
+            high_sev = [v for v in graph_violations if v.get("severity", 0) >= 8]
+            if len(high_sev) >= 2:
+                risk_score += 20
+                risk_factors.append(f"Graph: {len(high_sev)} high-severity violations (sev≥8) in inspection history")
 
             if not carrier.is_authorized():
                 risk_score += 100
@@ -148,11 +194,9 @@ Be direct. A shipper needs a clear answer, not a hedge."""
                 risk_factors.append("MEDIUM: Conditional safety rating")
 
             if carrier.csa_scores:
-                csa = CSAScore(**{
-                    k: v for k, v in carrier.csa_scores.model_dump().items()
-                    if v is not None
-                }) if hasattr(carrier.csa_scores, "model_dump") else carrier.csa_scores
-                violations = csa.violations() if hasattr(csa, "violations") else []
+                csa_dict = carrier.csa_scores if isinstance(carrier.csa_scores, dict) else carrier.csa_scores.model_dump()
+                csa = CSAScore(**{k: v for k, v in csa_dict.items() if v is not None})
+                violations = csa.violations()
                 risk_score += len(violations) * 15
                 for v in violations:
                     risk_factors.append(f"CSA Alert: {v}")

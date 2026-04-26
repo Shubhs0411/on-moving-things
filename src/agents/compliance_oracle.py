@@ -5,13 +5,17 @@ import os
 from typing import Any
 
 from src.knowledge.vectorstore import FreightKnowledgeBase
+from src.knowledge.graph import get_graph
 from .base import BaseComplianceAgent, ORACLE_MODEL
 
 
 class ComplianceOracleAgent(BaseComplianceAgent):
     """
-    Deep regulatory Q&A agent. Uses claude-opus-4-7 for authoritative answers
-    with full citation support over the FMCSA/DOT knowledge base.
+    Deep regulatory Q&A agent — GraphRAG architecture.
+    Combines:
+      - ChromaDB semantic search (what do regulations say?)
+      - Knowledge graph traversal (what has this entity actually done?)
+    Uses claude-opus-4-7 for reasoning over both sources.
     """
 
     name = "compliance_oracle"
@@ -21,6 +25,7 @@ class ComplianceOracleAgent(BaseComplianceAgent):
         super().__init__()
         self._kb = kb or FreightKnowledgeBase()
         self._kb.ingest()
+        self._graph = get_graph()
 
     @property
     def system_prompt(self) -> str:
@@ -79,6 +84,25 @@ Output structure: Answer → Citation → Practical implication → Any caveats"
                     "required": ["citation"],
                 },
             },
+            {
+                "name": "graph_query",
+                "description": "Query the knowledge graph for relational facts about a carrier or driver: violation history, most-cited regulations, driver compliance chain. Use when a question involves a specific entity (DOT number or CDL).",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "entity_type": {
+                            "type": "string",
+                            "enum": ["carrier", "driver"],
+                            "description": "Type of entity to query",
+                        },
+                        "entity_id": {
+                            "type": "string",
+                            "description": "DOT number for carriers, license number for drivers",
+                        },
+                    },
+                    "required": ["entity_type", "entity_id"],
+                },
+            },
         ]
 
     def _dispatch_tool(self, tool_name: str, tool_input: dict[str, Any]) -> str:
@@ -105,5 +129,14 @@ Output structure: Answer → Citation → Practical implication → Any caveats"
             if not results:
                 return f"Section {citation} not found in knowledge base."
             return results[0]["content"]
+
+        if tool_name == "graph_query":
+            entity_type = tool_input.get("entity_type", "carrier")
+            entity_id = tool_input.get("entity_id", "")
+            if entity_type == "carrier":
+                return self._graph.get_graph_context_for_carrier(entity_id)
+            elif entity_type == "driver":
+                return self._graph.get_graph_context_for_driver(entity_id)
+            return f"Unknown entity type: {entity_type}"
 
         return f"Unknown tool: {tool_name}"
