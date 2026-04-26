@@ -119,12 +119,15 @@ class DocumentIngester:
     def _parse_with_docling(self, path: Path) -> tuple[str, dict[str, Any]]:
         """Use Docling for layout-aware PDF parsing."""
         from docling.document_converter import DocumentConverter
-        from docling.datamodel.base_models import InputFormat
-        from docling.datamodel.pipeline_options import PdfPipelineOptions
-
-        pipeline_opts = PdfPipelineOptions()
-        pipeline_opts.do_ocr = True
-        pipeline_opts.do_table_structure = True
+        # Docling's pipeline options API differs across versions. Keep parsing
+        # resilient by using defaults when advanced options are unavailable.
+        try:
+            from docling.datamodel.pipeline_options import PdfPipelineOptions  # type: ignore
+            pipeline_opts = PdfPipelineOptions()
+            pipeline_opts.do_ocr = True
+            pipeline_opts.do_table_structure = True
+        except Exception:
+            pipeline_opts = None
 
         converter = DocumentConverter()
         result = converter.convert(str(path))
