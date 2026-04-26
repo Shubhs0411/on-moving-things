@@ -130,8 +130,6 @@ Be direct. A shipper needs a clear answer, not a hedge."""
             scores = basics.get("csa_scores") or carrier_data.get("csa_scores")
             if not scores:
                 return json.dumps({"status": "No CSA data available"})
-
-            scores = carrier_data["csa_scores"]
             csa = CSAScore(**{k: v for k, v in scores.items() if v is not None})
             thresholds = csa.intervention_thresholds()
             violations = csa.violations()
