@@ -7,11 +7,13 @@ from typing import Any
 
 import chromadb
 from chromadb.config import Settings
+from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction
 
 from .regulations import RegulationLoader, RegulationChunk
 
 
 CHROMA_DIR = os.getenv("CHROMA_PERSIST_DIR", "./data/chroma")
+EMBED_MODEL = os.getenv("EMBED_MODEL", "all-MiniLM-L6-v2")
 
 
 class FreightKnowledgeBase:
@@ -28,10 +30,24 @@ class FreightKnowledgeBase:
             path=persist_dir,
             settings=Settings(anonymized_telemetry=False),
         )
-        self._collection = self._client.get_or_create_collection(
-            name=self.COLLECTION_NAME,
-            metadata={"hnsw:space": "cosine"},
-        )
+        embedding_fn = SentenceTransformerEmbeddingFunction(model_name=EMBED_MODEL)
+        try:
+            self._collection = self._client.get_or_create_collection(
+                name=self.COLLECTION_NAME,
+                metadata={"hnsw:space": "cosine"},
+                embedding_function=embedding_fn,
+            )
+        except ValueError as e:
+            # Existing local collection may be pinned to Chroma's default ONNX embedding.
+            # Recreate it so this project can run on systems where onnxruntime is unavailable.
+            if "Embedding function conflict" not in str(e):
+                raise
+            self._client.delete_collection(self.COLLECTION_NAME)
+            self._collection = self._client.get_or_create_collection(
+                name=self.COLLECTION_NAME,
+                metadata={"hnsw:space": "cosine"},
+                embedding_function=embedding_fn,
+            )
         self._loader = RegulationLoader()
 
     def ingest(self, force: bool = False) -> int:

@@ -43,3 +43,6 @@ packages = ["src"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["evals"]
+markers = [
+    "integration: live integration tests that call external APIs",
+]

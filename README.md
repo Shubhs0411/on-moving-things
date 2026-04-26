@@ -163,6 +163,12 @@ python demo/cli.py eval
 
 # Run just driver qualification cases
 python demo/cli.py eval --category driver_qualification
+
+# Run live evals through pytest (fails if pass rate < 0.60)
+python -m pytest evals/test_eval_harness.py -v
+
+# Optional knobs for pytest bridge
+EVAL_MIN_PASS_RATE=0.80 EVAL_N_CASES=10 python -m pytest evals/test_eval_harness.py -v
 ```
 
 ---
