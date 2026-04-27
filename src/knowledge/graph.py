@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections import defaultdict
 from datetime import date, datetime
 from pathlib import Path
@@ -367,6 +368,117 @@ class FreightKnowledgeGraph:
 
         return "\n".join(lines)
 
+    def search_nodes(
+        self,
+        node_type: str | None = None,
+        field: str | None = None,
+        value: str | None = None,
+        limit: int = 20,
+    ) -> list[dict[str, Any]]:
+        """
+        Search graph nodes by type and/or field value (case-insensitive substring).
+        Useful for finding carriers by name, regulations by citation, etc.
+        """
+        results = []
+        for node_id, attrs in self._g.nodes(data=True):
+            if node_type and attrs.get("type") != node_type:
+                continue
+            if field and value:
+                field_val = str(attrs.get(field, "")).lower()
+                if value.lower() not in field_val:
+                    continue
+            results.append({"node_id": node_id, **attrs})
+            if len(results) >= limit:
+                break
+        return results
+
+    def get_top_violating_carriers(self, top_n: int = 5) -> list[dict[str, Any]]:
+        """Carriers with the most total violations across all inspections."""
+        carrier_nodes = [
+            (nid, attrs)
+            for nid, attrs in self._g.nodes(data=True)
+            if attrs.get("type") == "Carrier"
+        ]
+        ranked = []
+        for _, attrs in carrier_nodes:
+            dot = attrs.get("dot_number", "")
+            history = self.get_carrier_violation_history(dot)
+            if history:
+                ranked.append({
+                    "dot_number": dot,
+                    "name": attrs.get("name", "Unknown"),
+                    "violation_count": len(history),
+                    "oos_events": sum(1 for v in history if v.get("oos_driver") or v.get("oos_vehicle")),
+                })
+        return sorted(ranked, key=lambda x: x["violation_count"], reverse=True)[:top_n]
+
+    def get_regulation_context(self, citation: str) -> str:
+        """Summarize all carriers cited for a regulation for use as Claude context."""
+        carriers = self.find_carriers_with_violation(citation)
+        if not carriers:
+            return f"No carriers in graph have been cited for {citation}."
+        lines = [f"## Graph: Carriers cited for {citation}"]
+        for entry in carriers[:5]:
+            c = entry["carrier"]
+            lines.append(
+                f"- DOT {c.get('dot_number')} ({c.get('name', 'Unknown')}): "
+                f"{entry['violation_count']} citation(s)"
+            )
+        return "\n".join(lines)
+
+    def export_mermaid(self, dot_number: str | None = None, max_nodes: int = 30) -> str:
+        """
+        Export a subgraph as a Mermaid flowchart diagram string.
+        If dot_number given, export that carrier's neighborhood; otherwise export summary.
+        """
+        lines = ["graph LR"]
+        seen_edges: set[tuple[str, str]] = set()
+        node_count = 0
+
+        def _safe_id(s: str) -> str:
+            return re.sub(r"[^a-zA-Z0-9_]", "_", s)
+
+        def _short(s: str, n: int = 20) -> str:
+            return s[:n].replace('"', "'")
+
+        if dot_number:
+            carrier_node = f"carrier:{dot_number}"
+            if carrier_node not in self._g:
+                return f"graph LR\n  N[\"DOT {dot_number} not in graph\"]"
+            subgraph_nodes = {carrier_node}
+            # BFS up to depth 2
+            frontier = [carrier_node]
+            for _ in range(2):
+                next_frontier = []
+                for n in frontier:
+                    for _, nb in self._g.out_edges(n):
+                        if nb not in subgraph_nodes:
+                            subgraph_nodes.add(nb)
+                            next_frontier.append(nb)
+                frontier = next_frontier
+            node_ids = list(subgraph_nodes)[:max_nodes]
+        else:
+            node_ids = list(self._g.nodes())[:max_nodes]
+
+        for src, dst, attrs in self._g.edges(data=True):
+            if src not in node_ids or dst not in node_ids:
+                continue
+            edge_key = (_safe_id(src), _safe_id(dst))
+            if edge_key in seen_edges:
+                continue
+            seen_edges.add(edge_key)
+            src_attrs = self._g.nodes[src]
+            dst_attrs = self._g.nodes[dst]
+            src_label = _short(src_attrs.get("name") or src_attrs.get("citation") or src_attrs.get("description") or src)
+            dst_label = _short(dst_attrs.get("name") or dst_attrs.get("citation") or dst_attrs.get("description") or dst)
+            rel = attrs.get("rel", "→")
+            lines.append(f'  {_safe_id(src)}["{src_label}"] -->|{rel}| {_safe_id(dst)}["{dst_label}"]')
+            node_count += 1
+            if node_count >= max_nodes:
+                break
+
+        return "\n".join(lines)
+
     # ── Stats ──────────────────────────────────────────────────────────────────
 
     def stats(self) -> dict[str, Any]:
@@ -376,11 +488,24 @@ class FreightKnowledgeGraph:
         rel_counts: dict[str, int] = defaultdict(int)
         for _, _, attrs in self._g.edges(data=True):
             rel_counts[attrs.get("rel", "Unknown")] += 1
+
+        # Most-cited regulation across entire graph
+        reg_citations: dict[str, int] = defaultdict(int)
+        for nid, attrs in self._g.nodes(data=True):
+            if attrs.get("type") == "Regulation":
+                # Count incoming CITES edges
+                reg_citations[attrs.get("citation", nid)] += self._g.in_degree(nid)
+
+        top_regs = sorted(reg_citations.items(), key=lambda x: x[1], reverse=True)[:5]
+
         return {
             "nodes": self._g.number_of_nodes(),
             "edges": self._g.number_of_edges(),
             "by_type": dict(type_counts),
             "by_relationship": dict(rel_counts),
+            "top_cited_regulations_overall": [
+                {"citation": c, "total_citations": n} for c, n in top_regs
+            ],
         }
 
 

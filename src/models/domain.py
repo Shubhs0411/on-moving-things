@@ -63,7 +63,7 @@ class CSAScore(BaseModel):
         return violations
 
     def highest_risk_basic(self) -> tuple[str, float] | None:
-        scores = {k: getattr(self, k) for k in self.model_fields if getattr(self, k) is not None}
+        scores = {k: getattr(self, k) for k in CSAScore.model_fields if getattr(self, k) is not None}
         if not scores:
             return None
         worst = max(scores, key=lambda k: scores[k])

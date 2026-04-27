@@ -20,11 +20,55 @@ jobs:
           python-version: "3.11"
           cache: pip
 
+      # Cache HuggingFace model downloads (sentence-transformers, tokenizers)
+      - name: Cache HuggingFace models
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-models-${{ runner.os }}-all-MiniLM-L6-v2
+          restore-keys: hf-models-${{ runner.os }}-
+
       - name: Install dependencies
         run: pip install -e ".[dev]"
 
       - name: Run unit tests
-        run: python -m pytest evals/test_unit.py -v --tb=short
+        run: python -m pytest evals/test_unit.py -v --tb=short -m "not integration"
+
+      - name: Write unit test summary
+        if: always()
+        run: |
+          python - <<'PYEOF'
+          import subprocess, sys, json, pathlib
+          result = subprocess.run(
+              ["python", "-m", "pytest", "evals/test_unit.py",
+               "--tb=no", "-q", "--no-header", "--json-report",
+               "--json-report-file=evals/results/unit_report.json"],
+              capture_output=True, text=True
+          )
+          summary_file = pathlib.Path("evals/results/unit_report.json")
+          if summary_file.exists():
+              data = json.loads(summary_file.read_text())
+              s = data.get("summary", {})
+              passed = s.get("passed", 0)
+              failed = s.get("failed", 0)
+              total  = s.get("total", passed + failed)
+              status = "✅" if failed == 0 else "❌"
+              lines = [
+                  f"## {status} Unit Tests",
+                  f"| Metric | Value |",
+                  f"|--------|-------|",
+                  f"| Passed | {passed} |",
+                  f"| Failed | {failed} |",
+                  f"| Total  | {total} |",
+              ]
+              if failed:
+                  lines.append("\n### Failed tests")
+                  for t in data.get("tests", []):
+                      if t.get("outcome") == "failed":
+                          lines.append(f"- `{t['nodeid']}`")
+              pathlib.Path("$GITHUB_STEP_SUMMARY").write_text("\n".join(lines))
+          PYEOF
+        continue-on-error: true
 
   # ── Integration eval (requires ANTHROPIC_API_KEY secret) ──────────────────
   integration-eval:
@@ -40,6 +84,13 @@ jobs:
         with:
           python-version: "3.11"
           cache: pip
+
+      - name: Cache HuggingFace models
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-models-${{ runner.os }}-all-MiniLM-L6-v2
+          restore-keys: hf-models-${{ runner.os }}-
 
       - name: Install dependencies
         run: pip install -e ".[dev]"
@@ -66,23 +117,46 @@ jobs:
           path: evals/results/
           retention-days: 30
 
-      - name: Post eval summary to job
+      - name: Post eval summary to GitHub Step Summary
         if: always()
         run: |
-          python - <<'EOF'
-          import json, pathlib, sys
-          results = sorted(pathlib.Path("evals/results").glob("eval_*.json"))
+          python - <<'PYEOF'
+          import json, pathlib, sys, os
+
+          results_dir = pathlib.Path("evals/results")
+          results = sorted(results_dir.glob("eval_*.json"))
+          summary_path = pathlib.Path(os.environ.get("GITHUB_STEP_SUMMARY", "/dev/null"))
+
           if not results:
-              print("No eval results found")
+              summary_path.write_text("## ⚠️ Integration Eval\n\nNo eval result files found.\n")
               sys.exit(0)
+
           data = json.loads(results[-1].read_text())
-          summary = data["summary"]
-          print(f"### Eval Results")
-          print(f"Pass rate: {summary['pass_rate']}")
-          print(f"Avg score: {summary['avg_score']}")
-          print(f"Avg latency: {summary['avg_latency_ms']}ms")
-          if summary.get("failed_cases"):
-              print(f"Failed cases:")
-              for fc in summary["failed_cases"]:
-                  print(f"  - {fc['id']} (score={fc['score']}): missing {fc.get('keyword_misses', [])}")
-          EOF
+          s = data.get("summary", {})
+          pass_rate = s.get("pass_rate", "N/A")
+          avg_score = s.get("avg_score", "N/A")
+          avg_lat   = s.get("avg_latency_ms", "N/A")
+          passed    = s.get("passed", 0)
+          total     = s.get("total_cases", 0)
+          failed_cases = s.get("failed_cases", [])
+
+          icon = "✅" if not failed_cases else "❌"
+          lines = [
+              f"## {icon} Integration Eval Results",
+              "",
+              f"| Metric | Value |",
+              f"|--------|-------|",
+              f"| Pass rate | **{pass_rate}** ({passed}/{total}) |",
+              f"| Avg score | {avg_score} |",
+              f"| Avg latency | {avg_lat}ms |",
+          ]
+
+          if failed_cases:
+              lines += ["", "### ❌ Failed Cases"]
+              for fc in failed_cases:
+                  misses = ", ".join(fc.get("keyword_misses", []))
+                  lines.append(f"- `{fc['id']}` score={fc['score']:.2f} — missing keywords: {misses or 'none'}")
+
+          summary_path.write_text("\n".join(lines) + "\n")
+          print("\n".join(lines))
+          PYEOF

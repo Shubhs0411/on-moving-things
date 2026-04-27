@@ -152,6 +152,7 @@ def test_fmcsa_status_dict_has_expected_keys():
 
 # ── Document Ingester ──────────────────────────────────────────────────────────
 
+@pytest.mark.integration
 def test_ingester_text_adds_chunks(tmp_path, monkeypatch):
     monkeypatch.setenv("CHROMA_PERSIST_DIR", str(tmp_path / "chroma"))
     from src.knowledge.vectorstore import FreightKnowledgeBase
@@ -167,6 +168,7 @@ def test_ingester_text_adds_chunks(tmp_path, monkeypatch):
     assert result["chunks_added"] >= 1
 
 
+@pytest.mark.integration
 def test_ingester_inspection_report_updates_graph(tmp_path, monkeypatch):
     monkeypatch.setenv("CHROMA_PERSIST_DIR", str(tmp_path / "chroma"))
     from src.knowledge.vectorstore import FreightKnowledgeBase
@@ -194,6 +196,7 @@ def test_ingester_inspection_report_updates_graph(tmp_path, monkeypatch):
     assert any(v["code"] == "393.47" for v in history)
 
 
+@pytest.mark.integration
 def test_ingester_handles_missing_file_gracefully():
     from src.knowledge.ingester import DocumentIngester
     ingester = DocumentIngester()
@@ -342,3 +345,155 @@ def test_mock_inspections_json_is_valid():
             assert "code" in v
             assert "citation" in v
             assert "severity" in v
+
+
+# ── Knowledge Graph — new methods ─────────────────────────────────────────────
+
+def test_graph_search_nodes_by_type():
+    from src.knowledge.graph import FreightKnowledgeGraph
+    g = FreightKnowledgeGraph().build()
+    carriers = g.search_nodes(node_type="Carrier")
+    assert len(carriers) >= 5
+    for c in carriers:
+        assert c.get("type") == "Carrier"
+
+
+def test_graph_search_nodes_by_field_value():
+    from src.knowledge.graph import FreightKnowledgeGraph
+    g = FreightKnowledgeGraph().build()
+    # Search for a carrier by dot_number substring
+    results = g.search_nodes(node_type="Carrier", field="dot_number", value="2345678")
+    assert len(results) >= 1
+    assert results[0]["dot_number"] == "2345678"
+
+
+def test_graph_get_top_violating_carriers():
+    from src.knowledge.graph import FreightKnowledgeGraph
+    g = FreightKnowledgeGraph().build()
+    top = g.get_top_violating_carriers(top_n=3)
+    assert isinstance(top, list)
+    # Each entry should have required fields
+    for entry in top:
+        assert "dot_number" in entry
+        assert "violation_count" in entry
+    # Should be sorted descending
+    if len(top) >= 2:
+        assert top[0]["violation_count"] >= top[-1]["violation_count"]
+
+
+def test_graph_export_mermaid_returns_string():
+    from src.knowledge.graph import FreightKnowledgeGraph
+    g = FreightKnowledgeGraph().build()
+    mermaid = g.export_mermaid(dot_number="2345678")
+    assert mermaid.startswith("graph LR")
+    assert "2345678" in mermaid or "carrier" in mermaid.lower()
+
+
+def test_graph_export_mermaid_unknown_dot():
+    from src.knowledge.graph import FreightKnowledgeGraph
+    g = FreightKnowledgeGraph().build()
+    mermaid = g.export_mermaid(dot_number="0000000")
+    assert "not in graph" in mermaid
+
+
+def test_graph_stats_includes_top_cited_regulations():
+    from src.knowledge.graph import FreightKnowledgeGraph
+    g = FreightKnowledgeGraph().build()
+    s = g.stats()
+    assert "top_cited_regulations_overall" in s
+    assert isinstance(s["top_cited_regulations_overall"], list)
+
+
+def test_graph_regulation_context_for_citation():
+    from src.knowledge.graph import FreightKnowledgeGraph
+    g = FreightKnowledgeGraph().build()
+    # Get a real citation from the graph
+    history = g.get_carrier_violation_history("2345678")
+    if history:
+        citation = history[0]["citation"]
+        ctx = g.get_regulation_context(citation)
+        assert isinstance(ctx, str)
+        assert len(ctx) > 0
+
+
+def test_graph_find_carriers_with_violation_returns_sorted():
+    from src.knowledge.graph import FreightKnowledgeGraph
+    g = FreightKnowledgeGraph().build()
+    history = g.get_carrier_violation_history("2345678")
+    if not history:
+        return
+    citation = history[0]["citation"]
+    results = g.find_carriers_with_violation(citation)
+    assert isinstance(results, list)
+    if len(results) >= 2:
+        assert results[0]["violation_count"] >= results[-1]["violation_count"]
+
+
+# ── FMCSA API — improved normalization ────────────────────────────────────────
+
+def test_fmcsa_normalize_carrier_handles_boolean_allowed():
+    from src.knowledge.fmcsa_api import FMCSAClient
+    client = FMCSAClient(web_key="")
+    # Simulate API response with boolean allowedToOperate
+    data = {"carrier": {"dotNumber": "9988776", "legalName": "Test Co",
+                        "allowedToOperate": True, "hmFlag": "N", "pcFlag": "N"}}
+    result = client._normalize_carrier(data, "9988776")
+    assert result["operating_status"] == "AUTHORIZED"
+
+
+def test_fmcsa_normalize_carrier_handles_n_flag():
+    from src.knowledge.fmcsa_api import FMCSAClient
+    client = FMCSAClient(web_key="")
+    data = {"carrier": {"dotNumber": "1122334", "legalName": "Inactive Co",
+                        "allowedToOperate": "N"}}
+    result = client._normalize_carrier(data, "1122334")
+    assert result["operating_status"] == "NOT_AUTHORIZED"
+
+
+def test_fmcsa_get_carrier_crash_stats():
+    from src.knowledge.fmcsa_api import FMCSAClient
+    client = FMCSAClient(web_key="")
+    stats = client.get_carrier_crash_stats("2345678")
+    assert "crashes_total" in stats
+    assert "crashes_fatal" in stats
+    assert isinstance(stats["crashes_total"], int)
+
+
+def test_fmcsa_mock_inspections_capped():
+    from src.knowledge.fmcsa_api import FMCSAClient
+    client = FMCSAClient(web_key="")
+    inspections = client.get_recent_inspections("2345678")
+    assert len(inspections) <= FMCSAClient._MAX_INSPECTIONS
+
+
+# ── Document Ingester — chunking and extraction ────────────────────────────────
+
+def test_ingester_chunk_hard_splits_large_text():
+    from src.knowledge.ingester import chunk_text
+    long_text = "A" * 5000  # single block with no newlines, must hard-split
+    chunks = chunk_text(long_text, max_chars=1500)
+    assert len(chunks) >= 3
+    for c in chunks:
+        assert len(c["text"]) <= 1500
+
+
+def test_ingester_extract_citation_handles_section_format():
+    from src.knowledge.ingester import _extract_citation
+    text = "Under 49 CFR 395.3(a)(1), a driver may not drive beyond 11 hours."
+    result = _extract_citation(text)
+    assert result is not None
+    assert "395.3" in result
+
+
+def test_ingester_extract_citation_handles_part_format():
+    from src.knowledge.ingester import _extract_citation
+    text = "See 49 CFR Part 391 for driver qualification requirements."
+    result = _extract_citation(text)
+    assert result is not None
+    assert "Part 391" in result
+
+
+def test_ingester_extract_citation_returns_none_for_no_match():
+    from src.knowledge.ingester import _extract_citation
+    result = _extract_citation("This text has no CFR citation at all.")
+    assert result is None

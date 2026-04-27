@@ -80,6 +80,19 @@ class FMCSAClient:
         except Exception as e:
             return [{"error": str(e)}]
 
+    def get_carrier_crash_stats(self, dot_number: str) -> dict[str, Any]:
+        """Return crash summary counts from mock or live data."""
+        carrier = self._mock.get(dot_number, {})
+        return {
+            "dot_number": dot_number,
+            "crashes_total": carrier.get("crashes_total", 0),
+            "crashes_fatal": carrier.get("crashes_fatal", 0),
+            "crashes_injury": carrier.get("crashes_injury", 0),
+            "inspections_total": carrier.get("inspections_total", 0),
+            "driver_oos_inspections": carrier.get("driver_oos_inspections", 0),
+            "vehicle_oos_inspections": carrier.get("vehicle_oos_inspections", 0),
+        }
+
     def get_recent_inspections(self, dot_number: str) -> list[dict[str, Any]]:
         """
         Fetch recent inspections for a carrier.
@@ -152,25 +165,53 @@ class FMCSAClient:
         """Map FMCSA API response fields to our Carrier model fields."""
         content = data.get("content", data)
         carrier = content.get("carrier", content)
+
+        # allowedToOperate may be "Y"/"N" or a boolean from some endpoint variants
+        allowed = carrier.get("allowedToOperate", "N")
+        if isinstance(allowed, bool):
+            operating_status = "AUTHORIZED" if allowed else "NOT_AUTHORIZED"
+        else:
+            operating_status = "AUTHORIZED" if str(allowed).upper() == "Y" else "NOT_AUTHORIZED"
+
+        # insuranceOnFile flag — treat non-zero dollar value as on-file
+        ins_on_file_raw = carrier.get("bipdInsuranceOnFile", 0) or 0
+        try:
+            ins_amount = float(ins_on_file_raw)
+        except (TypeError, ValueError):
+            ins_amount = 0.0
+        ins_required_raw = carrier.get("bipdInsuranceRequired", "0") or "0"
+        insurance_on_file = str(ins_required_raw) != "0" or ins_amount > 0
+
+        # Safely parse integer fleet counts
+        def _int(val: Any) -> int | None:
+            try:
+                return int(val) if val is not None else None
+            except (TypeError, ValueError):
+                return None
+
         return {
             "dot_number": str(carrier.get("dotNumber", dot_number)),
             "mc_number": carrier.get("mcMxFFNumber"),
-            "legal_name": carrier.get("legalName", "Unknown"),
+            "legal_name": carrier.get("legalName") or f"Carrier {dot_number}",
             "dba_name": carrier.get("dbaName"),
-            "operating_status": carrier.get("allowedToOperate", "N") == "Y" and "AUTHORIZED" or "NOT_AUTHORIZED",
-            "carrier_operation": carrier.get("carrierOperation", {}).get("carrierOperationDesc", "CARRIER"),
-            "hm_flag": carrier.get("hmFlag", "N") == "Y",
-            "pc_flag": carrier.get("pcFlag", "N") == "Y",
+            "operating_status": operating_status,
+            "carrier_operation": (
+                carrier.get("carrierOperation", {}).get("carrierOperationDesc")
+                if isinstance(carrier.get("carrierOperation"), dict)
+                else carrier.get("carrierOperation") or "CARRIER"
+            ),
+            "hm_flag": str(carrier.get("hmFlag", "N")).upper() == "Y",
+            "pc_flag": str(carrier.get("pcFlag", "N")).upper() == "Y",
             "state": carrier.get("phyState"),
             "country": carrier.get("phyCountry", "US"),
             "safety_rating": carrier.get("safetyRating"),
             "safety_rating_date": carrier.get("safetyRatingDate"),
-            "insurance_on_file": carrier.get("bipdInsuranceRequired", "0") != "0",
-            "insurance_amount": float(carrier.get("bipdInsuranceOnFile", 0) or 0),
+            "insurance_on_file": insurance_on_file,
+            "insurance_amount": ins_amount,
             "out_of_service": carrier.get("oosDate") is not None,
             "out_of_service_date": carrier.get("oosDate"),
-            "total_drivers": carrier.get("totalDrivers"),
-            "total_power_units": carrier.get("totalPowerUnits"),
+            "total_drivers": _int(carrier.get("totalDrivers")),
+            "total_power_units": _int(carrier.get("totalPowerUnits")),
             "_source": "fmcsa_live",
         }
 
@@ -200,6 +241,8 @@ class FMCSAClient:
             carriers = [carriers]
         return [{"carrier": self._normalize_carrier({"carrier": c}, c.get("dotNumber", "")), "_source": "fmcsa_live"} for c in carriers]
 
+    _MAX_INSPECTIONS = 50  # cap live response to avoid unbounded graph growth
+
     def _normalize_inspections(self, data: dict[str, Any], dot_number: str) -> list[dict[str, Any]]:
         content = data.get("content", data)
         raw_items = (
@@ -213,7 +256,7 @@ class FMCSAClient:
             raw_items = [raw_items]
 
         normalized: list[dict[str, Any]] = []
-        for i, ins in enumerate(raw_items):
+        for i, ins in enumerate(raw_items[: self._MAX_INSPECTIONS]):
             inspection_id = str(
                 ins.get("inspectionId")
                 or ins.get("inspection_id")

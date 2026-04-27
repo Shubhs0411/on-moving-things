@@ -8,6 +8,9 @@ Usage:
     python demo/cli.py demo               # run scripted demo sequence
     python demo/cli.py eval               # run eval harness
     python demo/cli.py query "..."        # single query
+    python demo/cli.py status             # show system status
+    python demo/cli.py graph DOT_NUMBER   # show carrier graph context
+    python demo/cli.py ingest PATH        # ingest a PDF or text file
 """
 from __future__ import annotations
 
@@ -237,7 +240,7 @@ def demo():
         if i < len(DEMO_QUERIES):
             console.input("[dim]Press Enter for next query...[/dim]")
 
-    # Show observability stats at end
+    # Observability stats at end
     from src.observability.tracer import get_tracer
     stats = get_tracer().session_stats()
     stats_table = Table(title="Session Observability", box=box.ROUNDED, border_style="brand")
@@ -249,6 +252,189 @@ def demo():
     stats_table.add_row("Output tokens used", str(stats.get("total_output_tokens", 0)))
     stats_table.add_row("Error rate", stats.get("error_rate", "0.0%"))
     console.print(stats_table)
+
+
+@app.command()
+def status():
+    """Show system status: API keys, knowledge base, graph, and FMCSA mode."""
+    _print_banner()
+
+    t = Table(title="System Status", box=box.ROUNDED, border_style="brand")
+    t.add_column("Component", style="bold", width=28)
+    t.add_column("Status", width=20)
+    t.add_column("Detail", width=55)
+
+    # API keys
+    api_key = os.getenv("ANTHROPIC_API_KEY", "")
+    fmcsa_key = os.getenv("FMCSA_WEB_KEY", "")
+    t.add_row(
+        "Anthropic API Key",
+        "[green]SET[/green]" if api_key else "[red]NOT SET[/red]",
+        f"...{api_key[-6:]}" if api_key else "Add to .env file",
+    )
+    t.add_row(
+        "FMCSA Web Key",
+        "[green]SET (live mode)[/green]" if fmcsa_key else "[yellow]NOT SET (mock)[/yellow]",
+        f"...{fmcsa_key[-6:]}" if fmcsa_key else "Get free key at ai.fmcsa.dot.gov",
+    )
+
+    # Knowledge base
+    try:
+        from src.knowledge.vectorstore import FreightKnowledgeBase
+        kb = FreightKnowledgeBase()
+        kb.ingest()
+        count = kb.count
+        t.add_row("Vector Store (ChromaDB)", "[green]OK[/green]", f"{count} regulation chunks indexed")
+    except Exception as e:
+        t.add_row("Vector Store (ChromaDB)", "[red]ERROR[/red]", str(e)[:50])
+
+    # Knowledge graph
+    try:
+        from src.knowledge.graph import get_graph
+        g = get_graph()
+        s = g.stats()
+        by_type = s.get("by_type", {})
+        t.add_row(
+            "Knowledge Graph",
+            "[green]OK[/green]",
+            f"{s['nodes']} nodes · {s['edges']} edges · "
+            f"{by_type.get('Carrier',0)} carriers · {by_type.get('Driver',0)} drivers · "
+            f"{by_type.get('Violation',0)} violations",
+        )
+    except Exception as e:
+        t.add_row("Knowledge Graph", "[red]ERROR[/red]", str(e)[:50])
+
+    # FMCSA API
+    try:
+        from src.knowledge.fmcsa_api import FMCSAClient
+        client = FMCSAClient()
+        fs = client.status()
+        t.add_row(
+            "FMCSA API",
+            "[green]LIVE[/green]" if client.is_live() else "[yellow]MOCK[/yellow]",
+            f"{fs['mode']} · {fs['mock_carriers_loaded']} mock carriers loaded",
+        )
+    except Exception as e:
+        t.add_row("FMCSA API", "[red]ERROR[/red]", str(e)[:50])
+
+    # Docling
+    try:
+        import docling  # noqa: F401
+        import importlib.metadata
+        ver = importlib.metadata.version("docling")
+        t.add_row("Docling (PDF parsing)", "[green]AVAILABLE[/green]", f"v{ver}")
+    except Exception:
+        t.add_row("Docling (PDF parsing)", "[yellow]NOT INSTALLED[/yellow]", "pip install docling  (optional)")
+
+    console.print(t)
+
+    # Top cited regulations from graph
+    try:
+        from src.knowledge.graph import get_graph
+        g = get_graph()
+        s = g.stats()
+        top_regs = s.get("top_cited_regulations_overall", [])
+        if top_regs:
+            console.print()
+            rt = Table(title="Most Cited Regulations (Graph-wide)", box=box.SIMPLE, border_style="dim")
+            rt.add_column("CFR Citation", style="citation", width=35)
+            rt.add_column("Times Cited", style="bold cyan", width=15)
+            for r in top_regs:
+                rt.add_row(r["citation"], str(r["total_citations"]))
+            console.print(rt)
+    except Exception:
+        pass
+
+
+@app.command()
+def graph(
+    dot: str = typer.Argument(..., help="DOT number to inspect (e.g. 2345678)"),
+    mermaid: bool = typer.Option(False, "--mermaid", help="Output Mermaid diagram markup"),
+):
+    """Show knowledge graph context for a carrier DOT number."""
+    from src.knowledge.graph import get_graph
+    g = get_graph()
+
+    if mermaid:
+        console.print(g.export_mermaid(dot_number=dot))
+        return
+
+    ctx = g.get_graph_context_for_carrier(dot)
+    violations = g.get_carrier_violation_history(dot)
+    top_regs = g.get_top_cited_regulations(dot)
+
+    console.print(Panel(Markdown(ctx), title=f"[bold]Graph: Carrier DOT {dot}[/bold]", border_style="cyan"))
+
+    if violations:
+        vt = Table(title="Violation History", box=box.SIMPLE_HEAVY)
+        vt.add_column("Date", width=12)
+        vt.add_column("Citation", style="citation", width=25)
+        vt.add_column("Description", width=50)
+        vt.add_column("Sev", width=5)
+        vt.add_column("OOS", width=5)
+        for v in violations[:15]:
+            oos = "D+V" if v.get("oos_driver") and v.get("oos_vehicle") else (
+                "Drv" if v.get("oos_driver") else ("Veh" if v.get("oos_vehicle") else ""))
+            vt.add_row(
+                str(v.get("date", ""))[:10],
+                v.get("citation", ""),
+                v.get("description", "")[:48],
+                str(v.get("severity", "")),
+                oos,
+            )
+        console.print(vt)
+
+    if top_regs:
+        rt = Table(title="Top Cited Regulations", box=box.SIMPLE)
+        rt.add_column("Citation", style="citation", width=30)
+        rt.add_column("Count", style="bold cyan", width=8)
+        rt.add_column("Total Severity", width=15)
+        for r in top_regs:
+            rt.add_row(r["citation"], str(r["count"]), str(r["total_severity"]))
+        console.print(rt)
+
+
+@app.command()
+def ingest(
+    path: str = typer.Argument(..., help="Path to PDF or text file to ingest"),
+    category: str = typer.Option("REGULATION", help="Category: REGULATION, INSPECTION, HOS, DQ, CSA"),
+    title: str = typer.Option("", help="Document title (defaults to filename)"),
+):
+    """Ingest a PDF or text file into the knowledge base."""
+    p = Path(path)
+    if not p.exists():
+        console.print(f"[red]File not found: {path}[/red]")
+        raise typer.Exit(1)
+
+    from src.knowledge.ingester import DocumentIngester
+    from src.knowledge.graph import get_graph
+
+    doc_title = title or p.stem
+    graph = get_graph()
+    ingester = DocumentIngester(graph=graph)
+
+    with Progress(SpinnerColumn(), TextColumn("[progress.description]{task.description}"),
+                  console=console, transient=True) as prog:
+        task = prog.add_task(f"[cyan]Ingesting {p.name}...", total=None)
+        if p.suffix.lower() == ".pdf":
+            result = ingester.ingest_pdf(p, category=category)
+        else:
+            result = ingester.ingest_text(p.read_text(encoding="utf-8", errors="replace"),
+                                          title=doc_title, category=category)
+        prog.update(task, description="[green]Done")
+
+    if "error" in result:
+        console.print(f"[red]Error: {result['error']}[/red]")
+        raise typer.Exit(1)
+
+    console.print(Panel(
+        f"[green]Ingested:[/green] {p.name}\n"
+        f"Chunks added: [bold]{result.get('chunks_added', 0)}[/bold]\n"
+        f"Category: {result.get('category', category)}\n"
+        f"Source: {result.get('source', path)}",
+        title="[bold]Ingest Complete[/bold]",
+        border_style="green",
+    ))
 
 
 @app.command()
@@ -288,6 +474,7 @@ def eval(
 
     console.print(f"[cyan]Running {len(cases)} eval cases...[/cyan]\n")
 
+    results_list: list[tuple] = []
     with Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
@@ -296,12 +483,8 @@ def eval(
         console=console,
     ) as progress:
         task = progress.add_task("Running evals...", total=len(cases))
-        results_list = []
         for case in cases:
             progress.update(task, description=f"[cyan]{case.id}: {case.description[:40]}...")
-            import time as _time
-            from src.eval.harness import EvalHarness as _EH
-            t0 = _time.perf_counter()
             result = harness._run_single(case)
             results_list.append((case, result))
             progress.advance(task)
@@ -311,7 +494,6 @@ def eval(
         [c for c, _ in results_list],
     )
 
-    # Results table
     result_table = Table(title="Eval Results", box=box.ROUNDED)
     result_table.add_column("ID", style="bold", width=10)
     result_table.add_column("Description", width=45)
@@ -320,18 +502,17 @@ def eval(
     result_table.add_column("Status", width=10)
 
     for case, result in results_list:
-        status = "[compliant]PASS[/compliant]" if result.passed else "[non_compliant]FAIL[/non_compliant]"
+        status_str = "[compliant]PASS[/compliant]" if result.passed else "[non_compliant]FAIL[/non_compliant]"
         score_color = "green" if result.score >= 0.8 else "yellow" if result.score >= 0.6 else "red"
         result_table.add_row(
             result.case_id,
             case.description,
             f"[{score_color}]{result.score:.2f}[/{score_color}]",
             f"{result.latency_ms:.0f}ms",
-            status,
+            status_str,
         )
     console.print(result_table)
 
-    # Summary panel
     passed = summary["passed"]
     total = summary["total_cases"]
     pass_pct = passed / total * 100 if total else 0
@@ -342,7 +523,7 @@ def eval(
         border_style=color,
     ))
 
-    if summary["failed_cases"]:
+    if summary.get("failed_cases"):
         console.print("\n[bold red]Failed cases:[/bold red]")
         for fc in summary["failed_cases"]:
             console.print(f"  [red]✗[/red] {fc['id']} (score={fc['score']:.2f}) — missing: {fc.get('keyword_misses', [])}")
@@ -362,8 +543,9 @@ def query(q: str = typer.Argument(..., help="Compliance question to ask")):
     t0 = time.perf_counter()
     result = orchestrator.invoke(q)
     latency = (time.perf_counter() - t0) * 1000
+    intent = result.get("intent")
     console.print(Panel(Markdown(result["response"]), title=f"[bold]{q[:60]}[/bold]", border_style="cyan"))
-    console.print(f"[dim]Intent: {result.get('intent')} | Latency: {latency:.0f}ms[/dim]")
+    console.print(f"[dim]Intent: {intent.value if intent else 'N/A'} | Latency: {latency:.0f}ms[/dim]")
 
 
 @app.command()
@@ -390,9 +572,10 @@ def interactive():
             t0 = time.perf_counter()
             result = orchestrator.invoke(q)
             latency = (time.perf_counter() - t0) * 1000
+            intent = result.get("intent")
             console.print(Panel(
                 Markdown(result["response"]),
-                title=f"[dim]{result.get('intent', {}).value if result.get('intent') else 'response'} · {latency:.0f}ms[/dim]",
+                title=f"[dim]{intent.value if intent else 'response'} · {latency:.0f}ms[/dim]",
                 border_style="green",
             ))
         except (KeyboardInterrupt, EOFError):
