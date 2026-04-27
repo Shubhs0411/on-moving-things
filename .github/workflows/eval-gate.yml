@@ -34,6 +34,11 @@ jobs:
       - name: Run unit tests
         run: python -m pytest evals/test_unit.py -v --tb=short -m "not integration"
 
+      - name: CLI smoke checks
+        run: |
+          python demo/cli.py status
+          python demo/cli.py architecture --mermaid | head -n 20
+
       - name: Write unit test summary
         if: always()
         run: |

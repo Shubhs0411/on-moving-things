@@ -6,6 +6,8 @@ Multi-agent transportation compliance intelligence.
 Usage:
     python demo/cli.py                    # interactive mode
     python demo/cli.py demo               # run scripted demo sequence
+    python demo/cli.py check              # run system checks
+    python demo/cli.py architecture       # show LangGraph architecture
     python demo/cli.py eval               # run eval harness
     python demo/cli.py query "..."        # single query
     python demo/cli.py status             # show system status
@@ -19,6 +21,12 @@ import sys
 import time
 from pathlib import Path
 
+# Allow running this file directly: `python demo/cli.py ...`
+# without requiring PYTHONPATH or package installation first.
+REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
 import typer
 from dotenv import load_dotenv
 from rich import box
@@ -28,6 +36,7 @@ from rich.live import Live
 from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn
+from rich.syntax import Syntax
 from rich.table import Table
 from rich.text import Text
 from rich.theme import Theme
@@ -36,7 +45,7 @@ load_dotenv()
 
 # ── Theme ─────────────────────────────────────────────────────────────────────
 theme = Theme({
-    "brand": "bold #00D4FF",
+    "brand": "bold #2DD4BF",
     "compliant": "bold green",
     "non_compliant": "bold red",
     "conditional": "bold yellow",
@@ -44,11 +53,11 @@ theme = Theme({
     "high": "bold red",
     "medium": "bold yellow",
     "low": "bold green",
-    "agent": "bold cyan",
-    "citation": "italic #888888",
-    "header": "bold white on #1a1a2e",
+    "agent": "bold #60A5FA",
+    "citation": "italic #9CA3AF",
+    "header": "bold white on #0f172a",
 })
-console = Console(theme=theme, width=120)
+console = Console(theme=theme)
 app = typer.Typer(help="FreightMind AI — Transportation Compliance Intelligence")
 
 
@@ -95,7 +104,40 @@ DEMO_QUERIES = [
         "agent": "compliance_oracle",
         "why": "Tests: New entrant risk framework, uncertainty handling, due diligence guidance",
     },
+    {
+        "title": "Carrier Vetting — FMCSA + Graph Context",
+        "query": "For DOT 2345678, combine FMCSA inspection history with top cited CFR violations and give a shipper decision.",
+        "agent": "carrier_vetting",
+        "why": "Tests: FMCSA normalization + graph-derived context in one answer",
+    },
+    {
+        "title": "Compliance Oracle — DQ File Audit",
+        "query": "Give me a 49 CFR 391.51 checklist to audit a driver qualification file before dispatch.",
+        "agent": "compliance_oracle",
+        "why": "Tests: citation-heavy regulation retrieval with actionable checklist",
+    },
+    {
+        "title": "CSA Scoring — DataQs Correction Path",
+        "query": "DOT 2345678 disputes a false log citation. Explain the DataQs path and the operational plan for the next 30 days.",
+        "agent": "csa_scoring",
+        "why": "Tests: CSA remediation + practical sequencing",
+    },
 ]
+
+
+def _print_quick_commands() -> None:
+    panel = Panel(
+        "\n".join([
+            "[bold]/help[/bold]       Show quick command list",
+            "[bold]/status[/bold]     Run system health checks (graph, FMCSA, docling, KB)",
+            "[bold]/graph DOT[/bold]  Show graph context for a carrier",
+            "[bold]/arch[/bold]       Show LangGraph architecture",
+            "[bold]/exit[/bold]       Exit interactive mode",
+        ]),
+        title="[bold]Interactive Shortcuts[/bold]",
+        border_style="brand",
+    )
+    console.print(panel)
 
 
 def _print_banner():
@@ -207,7 +249,7 @@ def _run_query_demo(query_info: dict, orchestrator: "FreightMindOrchestrator") -
 
 @app.command()
 def demo():
-    """Run the full scripted demo sequence (5 queries, all agent types)."""
+    """Run the full scripted demo sequence across all agent types."""
     _print_banner()
     _print_architecture()
 
@@ -395,6 +437,130 @@ def graph(
 
 
 @app.command()
+def architecture(
+    mermaid: bool = typer.Option(False, "--mermaid", help="Print raw Mermaid markup"),
+):
+    """Show LangGraph routing architecture used by FreightMind."""
+    from src.graph.orchestrator import FreightMindOrchestrator
+
+    mermaid_text = FreightMindOrchestrator.graph_mermaid()
+    if mermaid:
+        console.print(mermaid_text)
+        return
+
+    console.print(Panel(
+        "Router classifies intent, dispatches to one specialist agent, then synthesizer formats the final response.",
+        title="[bold]LangGraph Topology[/bold]",
+        border_style="brand",
+    ))
+    console.print(Syntax(mermaid_text, "mermaid", theme="monokai", line_numbers=False))
+
+
+@app.command()
+def check(
+    dot: str = typer.Option("2345678", help="Carrier DOT number for smoke checks"),
+    run_query: bool = typer.Option(False, "--run-query", help="Run one orchestrator query (requires ANTHROPIC_API_KEY)"),
+    strict: bool = typer.Option(False, "--strict", help="Exit non-zero if any check fails"),
+):
+    """Run end-to-end smoke checks for KB, graph, FMCSA, Docling, and text ingestion."""
+    _print_banner()
+    checks: list[tuple[str, bool, str]] = []
+
+    def _record(name: str, ok: bool, detail: str) -> None:
+        checks.append((name, ok, detail))
+
+    api_key = os.getenv("ANTHROPIC_API_KEY", "")
+    _record("Anthropic API key", bool(api_key), "set" if api_key else "missing (.env: ANTHROPIC_API_KEY)")
+
+    try:
+        from src.knowledge.vectorstore import FreightKnowledgeBase
+        kb = FreightKnowledgeBase()
+        kb.ingest()
+        _record("Vector store", True, f"{kb.count} chunks indexed")
+    except Exception as e:
+        _record("Vector store", False, str(e)[:90])
+        kb = None
+
+    try:
+        from src.knowledge.graph import get_graph
+        g = get_graph()
+        stats = g.stats()
+        hist = g.get_carrier_violation_history(dot)
+        _record(
+            "Knowledge graph",
+            True,
+            f"{stats.get('nodes', 0)} nodes, {stats.get('edges', 0)} edges, {len(hist)} violations for DOT {dot}",
+        )
+    except Exception as e:
+        _record("Knowledge graph", False, str(e)[:90])
+        g = None
+
+    try:
+        from src.knowledge.fmcsa_api import FMCSAClient
+        client = FMCSAClient()
+        status = client.status()
+        carrier = client.get_carrier(dot)
+        inspections = client.get_recent_inspections(dot)
+        source = carrier.get("_source", "unknown")
+        _record(
+            "FMCSA API",
+            "dot_number" in carrier,
+            f"mode={status.get('mode', 'unknown')} source={source} inspections={len(inspections)}",
+        )
+    except Exception as e:
+        _record("FMCSA API", False, str(e)[:90])
+
+    try:
+        from docling.document_converter import DocumentConverter  # noqa: F401
+        from docling.datamodel.pipeline_options import PdfPipelineOptions  # noqa: F401
+        _record("Docling", True, "DocumentConverter + PdfPipelineOptions import OK")
+    except Exception as e:
+        _record("Docling", False, str(e)[:90])
+
+    try:
+        from src.knowledge.ingester import DocumentIngester
+        ingester = DocumentIngester(kb=kb, graph=g)
+        res = ingester.ingest_text(
+            "49 CFR 395.3(a)(1) permits 11 hours driving after 10 consecutive hours off duty.",
+            title="CLI health check",
+            category="HOS",
+            source="cli_check",
+        )
+        _record("Text ingestion", res.get("chunks_added", 0) > 0, f"chunks_added={res.get('chunks_added', 0)}")
+    except Exception as e:
+        _record("Text ingestion", False, str(e)[:90])
+
+    if run_query:
+        if not api_key:
+            _record("Orchestrator query", False, "skipped: ANTHROPIC_API_KEY missing")
+        else:
+            try:
+                from src.graph.orchestrator import FreightMindOrchestrator
+                orchestrator = FreightMindOrchestrator()
+                result = orchestrator.invoke(f"Run a quick safety check on DOT {dot}")
+                intent = result.get("intent")
+                _record("Orchestrator query", True, f"intent={intent.value if intent else 'N/A'}")
+            except Exception as e:
+                _record("Orchestrator query", False, str(e)[:90])
+
+    table = Table(title="FreightMind System Check", box=box.ROUNDED, border_style="brand")
+    table.add_column("Component", style="bold", width=24)
+    table.add_column("Status", width=10)
+    table.add_column("Detail", width=70)
+    for name, ok, detail in checks:
+        table.add_row(name, "[green]PASS[/green]" if ok else "[red]FAIL[/red]", detail)
+    console.print(table)
+
+    failed = [c for c in checks if not c[1]]
+    if failed:
+        console.print(f"\n[red]{len(failed)} check(s) failed.[/red]")
+        if strict:
+            raise typer.Exit(1)
+    else:
+        console.print("\n[green]All checks passed.[/green]")
+
+
+@app.command()
 def ingest(
     path: str = typer.Argument(..., help="Path to PDF or text file to ingest"),
     category: str = typer.Option("REGULATION", help="Category: REGULATION, INSPECTION, HOS, DQ, CSA"),
@@ -444,7 +610,7 @@ def eval(
 ):
     """Run the evaluation harness against the live system."""
     _print_banner()
-    api_key = os.getenv("ANTHROPIC_API_KEY")
+    api_key = (os.getenv("ANTHROPIC_API_KEY") or "").strip()
     if not api_key:
         console.print("[red]ANTHROPIC_API_KEY not set.[/red]")
         raise typer.Exit(1)
@@ -457,6 +623,14 @@ def eval(
     console.print("[cyan]Loading FreightMind AI...[/cyan]")
     orchestrator = FreightMindOrchestrator()
     harness = EvalHarness(invoke_fn=orchestrator.invoke)
+
+    # Preflight to avoid running a full suite when auth/model config is broken.
+    try:
+        orchestrator.invoke("Quick health check: respond with one sentence.")
+    except Exception as e:
+        console.print(f"[red]Eval preflight failed:[/red] {e}")
+        console.print("[yellow]Check ANTHROPIC_API_KEY and model access before running eval.[/yellow]")
+        raise typer.Exit(1)
 
     cat_filter = None
     if category:
@@ -526,7 +700,11 @@ def eval(
     if summary.get("failed_cases"):
         console.print("\n[bold red]Failed cases:[/bold red]")
         for fc in summary["failed_cases"]:
-            console.print(f"  [red]✗[/red] {fc['id']} (score={fc['score']:.2f}) — missing: {fc.get('keyword_misses', [])}")
+            notes = fc.get("notes", "")
+            if isinstance(notes, str) and notes.startswith("ERROR"):
+                console.print(f"  [red]✗[/red] {fc['id']} (score={fc['score']:.2f}) — {notes}")
+            else:
+                console.print(f"  [red]✗[/red] {fc['id']} (score={fc['score']:.2f}) — missing: {fc.get('keyword_misses', [])}")
 
 
 @app.command()
@@ -560,24 +738,50 @@ def interactive():
     from src.graph.orchestrator import FreightMindOrchestrator
     console.print("[cyan]Loading FreightMind AI...[/cyan]")
     orchestrator = FreightMindOrchestrator()
-    console.print("[green]Ready. Type your compliance question or 'exit' to quit.[/green]\n")
+    console.print("[green]Ready. Type your compliance question or '/exit' to quit.[/green]\n")
+    _print_quick_commands()
 
     while True:
         try:
             q = console.input("[bold cyan]freightmind>[/bold cyan] ").strip()
-            if q.lower() in ("exit", "quit", "q"):
+            if q.lower() in ("exit", "quit", "q", "/exit"):
                 break
             if not q:
                 continue
+
+            if q.lower() in ("/help", "help"):
+                _print_quick_commands()
+                continue
+            if q.lower() == "/status":
+                status()
+                continue
+            if q.lower().startswith("/graph "):
+                dot = q.split(maxsplit=1)[1].strip()
+                graph(dot=dot, mermaid=False)
+                continue
+            if q.lower() == "/arch":
+                architecture(mermaid=False)
+                continue
+
             t0 = time.perf_counter()
             result = orchestrator.invoke(q)
             latency = (time.perf_counter() - t0) * 1000
             intent = result.get("intent")
+            metadata = result.get("metadata", {})
+            agent = metadata.get("agent", "unknown")
+            trace_id = metadata.get("trace", "n/a")
+
             console.print(Panel(
                 Markdown(result["response"]),
                 title=f"[dim]{intent.value if intent else 'response'} · {latency:.0f}ms[/dim]",
                 border_style="green",
             ))
+            meta = Table(box=None, show_header=False, padding=(0, 2))
+            meta.add_column(style="dim")
+            meta.add_column()
+            meta.add_row("Agent", f"[agent]{agent}[/agent]")
+            meta.add_row("Trace", trace_id)
+            console.print(meta)
         except (KeyboardInterrupt, EOFError):
             break
     console.print("[dim]Goodbye.[/dim]")

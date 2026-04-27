@@ -54,12 +54,12 @@ Response
 ```
 
 ### System of Continuous Improvement — The Nervous System
-Every agent call is traced. Every trace is scored against 25 ground-truth eval cases. The eval harness runs on-demand or in CI. Pass rate is visible in real time.
+Every agent call is traced. Every trace is scored against 29 ground-truth eval cases. The eval harness runs on-demand or in CI. Pass rate is visible in real time.
 
 ```
 AgentTracer → traces_YYYYMMDD.jsonl
 EvalHarness → evals/results/eval_TIMESTAMP.json
-    25 cases × 5 categories × precision-scored
+    29 cases × 6 categories × precision-scored
 ```
 
 ---
@@ -75,7 +75,7 @@ EvalHarness → evals/results/eval_TIMESTAMP.json
 | CLI | Rich + Typer | Conference-ready terminal demo |
 | Data models | Pydantic v2 | Typed compliance domain entities |
 | Observability | Custom JSONL tracer | Every tool call, token count, latency — persisted |
-| Eval | Custom harness | 25 cases, keyword recall + citation recall + status accuracy |
+| Eval | Custom harness | 29 cases, keyword recall + citation recall + status accuracy |
 
 ---
 
@@ -92,39 +92,130 @@ cp .env.example .env
 # 3. Run interactive demo
 python demo/cli.py interactive
 
-# 4. Run scripted demo (5 queries, all agent types)
+# 4. Run full system checks (graph + FMCSA + docling + ingestion)
+python demo/cli.py check
+
+# 5. View LangGraph routing architecture
+python demo/cli.py architecture
+
+# 6. Run scripted demo (expanded query set)
 python demo/cli.py demo
 
-# 5. Run eval harness
+# 7. Run eval harness
 python demo/cli.py eval
 
-# 6. Start API server
+# 8. Start API server
 uvicorn src.api.main:app --reload
 # Docs at http://localhost:8000/docs
 ```
 
 ---
 
-## Demo Queries
-
-These queries exercise every agent in the system:
+## CLI Commands (Full)
 
 ```bash
-# Carrier vetting — dangerous carrier
-python demo/cli.py query "Run a safety check on DOT 2345678 before I tender a hazmat load."
+# Interactive shell with slash shortcuts
+python demo/cli.py interactive
 
-# Driver qual — disqualified driver  
-python demo/cli.py query "Check driver CDL-OH-005678. Can they drive today?"
+# One-shot system health checks (KB + graph + FMCSA + docling + ingestion)
+python demo/cli.py check
+python demo/cli.py check --run-query
+python demo/cli.py check --strict
 
-# CSA improvement
-python demo/cli.py query "DOT 2345678 has HOS score 82.1. What violations are driving this?"
+# Architecture view (LangGraph)
+python demo/cli.py architecture
+python demo/cli.py architecture --mermaid
 
-# Regulation Q&A
-python demo/cli.py query "How does the 34-hour restart work? What are the 1am-5am requirements?"
+# Scripted product demo
+python demo/cli.py demo
 
-# Risk assessment
-python demo/cli.py query "New carrier, 5 trucks, unrated, 12 inspections. How do I evaluate risk?"
+# Single compliance query
+python demo/cli.py query "Run a full safety check on DOT 2345678"
+
+# Show system status dashboard
+python demo/cli.py status
+
+# Knowledge graph views
+python demo/cli.py graph 2345678
+python demo/cli.py graph 2345678 --mermaid
+
+# Ingest text or PDF into knowledge base
+python demo/cli.py ingest data/regulations/fmcsa_hos.md --category HOS
+python demo/cli.py ingest /path/to/inspection.pdf --category INSPECTION
+
+# Eval harness
+python demo/cli.py eval
+python demo/cli.py eval --category csa_scoring
+python demo/cli.py eval --n 10
+
+# Tip: eval now runs a preflight auth/model check and fails fast with a clear
+# error if ANTHROPIC_API_KEY/model access is misconfigured.
 ```
+
+### Interactive Shortcuts
+
+```text
+/help
+/status
+/graph 2345678
+/arch
+/exit
+```
+
+## Query Library (All 29 Eval-Backed Queries)
+
+Use any of these with:
+
+```bash
+python demo/cli.py query "<QUERY>"
+```
+
+### Carrier Vetting
+
+- Is carrier with DOT number 1234567 safe to use for a general freight shipment?
+- Can I use DOT 2345678 for a hazmat shipment? They have a conditional safety rating.
+- Run a safety check on Sunrise Freight Partners, DOT 3456789
+- What is the compliance status of Blue Ridge Distribution Co, DOT 4567890?
+- Frontier Carriers (DOT 5678901) wants to haul for us. Should I be concerned about their controlled substances score?
+- Use FMCSA inspection history for DOT 2345678 and tell me the top 3 CFR citations driving risk.
+
+### Driver Qualification
+
+- Is driver CDL-TX-001234 qualified to operate a Class A combination vehicle pulling a tanker?
+- Check driver CDL-OH-005678. Can they drive today?
+- Is CDL-FL-003456 eligible for safety-sensitive duties?
+- What are the DQ file requirements for a new hire CDL driver under FMCSA rules?
+- Driver CDL-NY-007890 wants to haul hazmat. Are they properly endorsed?
+
+### CSA Scoring
+
+- DOT 2345678 has a vehicle maintenance score of 91.3. What does that mean and what should they do?
+- Explain how CSA scores are calculated and what the intervention thresholds are.
+- DOT 2345678 has an HOS score of 82.1. What violations are likely driving this and how do we fix it?
+- How does DOT 1234567's vehicle maintenance score of 58.3 compare to the threshold?
+- What is the crash indicator BASIC and how is it different from other BASICs?
+- DOT 2345678 has repeated brake and HOS violations from recent inspections. Give a 30-day corrective action plan.
+
+### Regulation Lookup
+
+- How many hours can a property-carrying driver drive in a day before they need to stop?
+- When is a driver required to take a 30-minute rest break?
+- What are the ELD exemptions? Which drivers don't need an ELD?
+- What is the minimum liability insurance requirement for a dry van carrier hauling general freight?
+- How does the 34-hour restart work? What are the requirements?
+- What is the sleeper berth provision and how does it work for splitting rest time?
+- Which FMCSA rules are most relevant when a carrier shows false logs and controlled substance violations in inspections?
+
+### Risk Assessment
+
+- A new motor carrier applied to haul for us. They have 5 power units, no safety rating yet, and only 12 inspections. How should I evaluate their risk?
+- What signals should a broker look at to vet a carrier quickly before tendering a load?
+- A driver failed a pre-employment drug test 6 months ago at a different company. Can they drive for us now?
+
+### Multi-Domain
+
+- We're hiring a driver who has a Class A CDL expiring in 2 months, a medical cert that expired last week, and their Clearinghouse shows CLEAR. What's their compliance status?
+- DOT 2345678 has a fatal crash, CSA alerts on 4 BASICs, and a conditional safety rating. Should I load them?
 
 ---
 
@@ -144,21 +235,22 @@ python demo/cli.py query "New carrier, 5 trucks, unrated, 12 inspections. How do
 
 ## Eval Harness
 
-25 test cases across 5 domains:
+29 test cases across 6 domains:
 
 | Domain | Cases | What's Tested |
 |--------|-------|---------------|
-| `carrier_vetting` | 5 | Operating authority, CSA alerts, inactive carriers, fatal crashes |
+| `carrier_vetting` | 6 | Operating authority, CSA alerts, inactive carriers, FMCSA inspection-derived risk |
 | `driver_qualification` | 5 | CDL validity, Clearinghouse PROHIBITED, refused drug test, DQ file gaps |
-| `csa_scoring` | 5 | BASIC thresholds, improvement plans, root-cause analysis |
-| `regulation_lookup` | 6 | HOS limits, ELD exemptions, 34-hour restart, sleeper berth, insurance minimums |
-| `risk_assessment` | 4 | New entrants, multi-domain queries, broker checklist |
+| `csa_scoring` | 6 | BASIC thresholds, improvement plans, inspection-driven corrective actions |
+| `regulation_lookup` | 7 | HOS limits, ELD exemptions, 34-hour restart, sleeper berth, inspection-linked citations |
+| `risk_assessment` | 3 | New entrants, broker checklist, hiring risk scenarios |
+| `multi_domain` | 2 | Combined safety, CSA, and qualification risk synthesis |
 
 Scoring: `0.5 × keyword_recall + 0.2 × citation_recall + 0.15 × status_accuracy + 0.15 × risk_accuracy`  
 Pass threshold: ≥ 0.60
 
 ```bash
-# Run all 25 cases
+# Run all 29 cases
 python demo/cli.py eval
 
 # Run just driver qualification cases
@@ -191,7 +283,7 @@ freightmind-ai/
 │   ├── graph/orchestrator.py     # LangGraph: router → agent → synthesizer
 │   ├── eval/
 │   │   ├── harness.py            # Scoring + persistence
-│   │   └── test_cases.py         # 25 ground-truth eval cases
+│   │   └── test_cases.py         # 29 ground-truth eval cases
 │   ├── observability/tracer.py   # JSONL tracing + session metrics
 │   └── api/main.py               # FastAPI REST endpoints
 ├── data/

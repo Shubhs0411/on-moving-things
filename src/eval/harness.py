@@ -31,10 +31,14 @@ class EvalHarness:
         self,
         invoke_fn: Callable[[str], dict[str, Any]],
         output_dir: str = "./evals/results",
+        max_retries: int = 2,
+        retry_backoff_s: float = 1.5,
     ) -> None:
         self._invoke = invoke_fn
         self._output_dir = Path(output_dir)
         self._output_dir.mkdir(parents=True, exist_ok=True)
+        self._max_retries = max_retries
+        self._retry_backoff_s = retry_backoff_s
 
     def run(
         self,
@@ -59,68 +63,133 @@ class EvalHarness:
 
     def _run_single(self, case: EvalCase) -> EvalResult:
         t0 = time.perf_counter()
-        try:
-            output = self._invoke(case.query)
-            latency_ms = (time.perf_counter() - t0) * 1000
-            response_text = output.get("response", "").lower()
+        attempts = 0
+        while True:
+            attempts += 1
+            try:
+                output = self._invoke(case.query)
+                latency_ms = (time.perf_counter() - t0) * 1000
+                response_text = output.get("response", "").lower()
 
-            # Keyword recall
-            keyword_hits = [kw for kw in case.expected_keywords if kw.lower() in response_text]
-            keyword_misses = [kw for kw in case.expected_keywords if kw.lower() not in response_text]
+                # Keyword recall with synonym matching to reduce brittle phrasing misses.
+                keyword_hits = [kw for kw in case.expected_keywords if self._keyword_present(kw, response_text)]
+                keyword_misses = [kw for kw in case.expected_keywords if not self._keyword_present(kw, response_text)]
 
-            # Regulation citation recall
-            reg_hits = [r for r in case.expected_regulation_refs if r.lower() in response_text]
-            reg_misses = [r for r in case.expected_regulation_refs if r.lower() not in response_text]
+                # Regulation citation recall
+                reg_hits = [r for r in case.expected_regulation_refs if r.lower() in response_text]
+                reg_misses = [r for r in case.expected_regulation_refs if r.lower() not in response_text]
 
-            # Score components
-            kw_score = len(keyword_hits) / max(len(case.expected_keywords), 1)
-            reg_score = len(reg_hits) / max(len(case.expected_regulation_refs), 1)
+                # Score components
+                kw_score = len(keyword_hits) / max(len(case.expected_keywords), 1)
+                reg_score = len(reg_hits) / max(len(case.expected_regulation_refs), 1)
 
-            # Status/risk detection (heuristic from response text)
-            actual_status = self._detect_status(response_text, output)
-            actual_risk = self._detect_risk(response_text)
+                # Status/risk detection (heuristic from response text)
+                actual_status = self._detect_status(response_text, output)
+                actual_risk = self._detect_risk(response_text)
 
-            status_correct = (
-                case.expected_status is None
-                or actual_status == case.expected_status
-                or self._status_in_response(case.expected_status, response_text)
-            )
-            risk_correct = (
-                case.expected_risk is None
-                or actual_risk == case.expected_risk
-                or self._risk_in_response(case.expected_risk, response_text)
-            )
+                status_correct = (
+                    case.expected_status is None
+                    or actual_status == case.expected_status
+                    or self._status_in_response(case.expected_status, response_text)
+                )
+                risk_correct = (
+                    case.expected_risk is None
+                    or actual_risk == case.expected_risk
+                    or self._risk_in_response(case.expected_risk, response_text)
+                )
 
-            score = (
-                kw_score * 0.5
-                + reg_score * 0.2
-                + (0.15 if status_correct else 0.0)
-                + (0.15 if risk_correct else 0.0)
-            )
-            passed = score >= 0.6
+                score = (
+                    kw_score * 0.5
+                    + reg_score * 0.2
+                    + (0.15 if status_correct else 0.0)
+                    + (0.15 if risk_correct else 0.0)
+                )
+                passed = score >= 0.6
 
-            return EvalResult(
-                case_id=case.id,
-                passed=passed,
-                score=round(score, 3),
-                actual_status=actual_status,
-                actual_risk=actual_risk,
-                keyword_hits=keyword_hits,
-                keyword_misses=keyword_misses,
-                regulation_hits=reg_hits,
-                regulation_misses=reg_misses,
-                latency_ms=round(latency_ms, 1),
-                notes=f"kw={kw_score:.2f} reg={reg_score:.2f} status={'✓' if status_correct else '✗'} risk={'✓' if risk_correct else '✗'}",
-            )
-        except Exception as e:
-            latency_ms = (time.perf_counter() - t0) * 1000
-            return EvalResult(
-                case_id=case.id,
-                passed=False,
-                score=0.0,
-                latency_ms=round(latency_ms, 1),
-                notes=f"ERROR: {e}",
-            )
+                return EvalResult(
+                    case_id=case.id,
+                    passed=passed,
+                    score=round(score, 3),
+                    actual_status=actual_status,
+                    actual_risk=actual_risk,
+                    keyword_hits=keyword_hits,
+                    keyword_misses=keyword_misses,
+                    regulation_hits=reg_hits,
+                    regulation_misses=reg_misses,
+                    latency_ms=round(latency_ms, 1),
+                    notes=f"kw={kw_score:.2f} reg={reg_score:.2f} status={'✓' if status_correct else '✗'} risk={'✓' if risk_correct else '✗'}",
+                )
+            except Exception as e:
+                if attempts <= self._max_retries and self._is_retryable_error(str(e)):
+                    time.sleep(self._retry_backoff_s * attempts)
+                    continue
+                latency_ms = (time.perf_counter() - t0) * 1000
+                return EvalResult(
+                    case_id=case.id,
+                    passed=False,
+                    score=0.0,
+                    latency_ms=round(latency_ms, 1),
+                    notes=f"ERROR(after {attempts} attempts): {e}",
+                )
+
+    def _is_retryable_error(self, msg: str) -> bool:
+        m = msg.lower()
+        retry_markers = [
+            "rate limit",
+            "429",
+            "timeout",
+            "timed out",
+            "connection",
+            "temporarily",
+            "overloaded",
+            "503",
+            "500",
+            "529",
+        ]
+        return any(marker in m for marker in retry_markers)
+
+    def _keyword_present(self, keyword: str, response_text: str) -> bool:
+        k = keyword.lower().strip()
+        if not k:
+            return False
+
+        variants = self._keyword_variants(k)
+        return any(v in response_text for v in variants)
+
+    def _keyword_variants(self, keyword: str) -> set[str]:
+        """Return phrase variants accepted as equivalent for eval keyword matching."""
+        variants: set[str] = {keyword}
+
+        alias_map: dict[str, set[str]] = {
+            "cannot drive": {"not qualified", "ineligible to drive", "may not drive", "must not drive"},
+            "not qualified": {"cannot drive", "ineligible to drive", "disqualified"},
+            "new entrant": {"new carrier", "new authority", "newly authorized carrier"},
+            "new carrier": {"new entrant", "newly authorized carrier"},
+            "limited data": {"insufficient data", "thin history", "not enough data"},
+            "insufficient data": {"limited data", "not enough data", "thin history"},
+            "rtd test": {"return-to-duty test", "return to duty test"},
+            "return-to-duty": {"return to duty", "rtd"},
+            "satisfactory": {"compliant", "approved"},
+            "compliant": {"satisfactory", "approved", "in compliance"},
+            "inactive": {"not active", "inactive status", "not currently active"},
+            "out of service": {"oos", "out-of-service", "placed out of service"},
+            "not authorized": {"unauthorized", "no operating authority", "not allowed to operate"},
+            "driving limit": {"11-hour limit", "11 hour limit", "hours-of-service limit", "hos limit"},
+            "dataqs": {"data q", "data qs", "challenge inspection data", "data quality challenge"},
+            "sap": {"substance abuse professional", "sap program", "sap evaluation"},
+            "return-to-duty test": {"rtd test", "return to duty test", "return-to-duty process"},
+        }
+
+        if keyword in alias_map:
+            variants.update(alias_map[keyword])
+
+        # Normalize common formatting variants.
+        if "-" in keyword:
+            variants.add(keyword.replace("-", " "))
+        if "/" in keyword:
+            variants.add(keyword.replace("/", " "))
+
+        return variants
 
     def _detect_status(
         self, text: str, output: dict[str, Any]

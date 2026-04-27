@@ -38,6 +38,27 @@ class FreightMindOrchestrator:
         user_query → router → [carrier_vetting | driver_qual | csa_scoring | compliance_oracle] → synthesizer → END
     """
 
+    _GRAPH_NODES = [
+        "router",
+        "carrier_vetting",
+        "driver_qualification",
+        "csa_scoring",
+        "compliance_oracle",
+        "synthesizer",
+    ]
+    _GRAPH_EDGES = [
+        ("router", "carrier_vetting", "intent=carrier_vetting"),
+        ("router", "driver_qualification", "intent=driver_qualification"),
+        ("router", "csa_scoring", "intent=csa_scoring"),
+        ("router", "compliance_oracle", "intent=regulation_lookup|risk_assessment"),
+        ("router", "compliance_oracle", "intent=multi_domain"),
+        ("carrier_vetting", "synthesizer", ""),
+        ("driver_qualification", "synthesizer", ""),
+        ("csa_scoring", "synthesizer", ""),
+        ("compliance_oracle", "synthesizer", ""),
+        ("synthesizer", "END", ""),
+    ]
+
     def __init__(self) -> None:
         self._client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
         self._kb = FreightKnowledgeBase()
@@ -178,3 +199,32 @@ Do NOT add new information. Do NOT remove critical findings. Only improve clarit
             "response": final_state.get("agent_response", ""),
             "metadata": final_state.get("metadata", {}),
         }
+
+    @classmethod
+    def graph_mermaid(cls) -> str:
+        """Return a Mermaid flowchart representation of the LangGraph topology."""
+        node_ids = {
+            "router": "R",
+            "carrier_vetting": "CV",
+            "driver_qualification": "DQ",
+            "csa_scoring": "CSA",
+            "compliance_oracle": "CO",
+            "synthesizer": "S",
+            "END": "E",
+        }
+        lines = [
+            "flowchart LR",
+            "  U[\"User Query\"] --> R[\"router\"]",
+            "  E((END))",
+        ]
+        for src, dst, label in cls._GRAPH_EDGES:
+            if src == "synthesizer" and dst == "END":
+                lines.append("  S[\"synthesizer\"] --> E")
+                continue
+            src_node = f"{node_ids[src]}[\"{src}\"]"
+            dst_node = f"{node_ids[dst]}[\"{dst}\"]"
+            if label:
+                lines.append(f"  {src_node} -- \"{label}\" --> {dst_node}")
+            else:
+                lines.append(f"  {src_node} --> {dst_node}")
+        return "\n".join(lines)

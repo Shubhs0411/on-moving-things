@@ -429,6 +429,19 @@ def test_graph_find_carriers_with_violation_returns_sorted():
         assert results[0]["violation_count"] >= results[-1]["violation_count"]
 
 
+def test_orchestrator_graph_mermaid_contains_topology_nodes():
+    from src.graph.orchestrator import FreightMindOrchestrator
+
+    mermaid = FreightMindOrchestrator.graph_mermaid()
+    assert mermaid.startswith("flowchart LR")
+    assert "router" in mermaid
+    assert "carrier_vetting" in mermaid
+    assert "driver_qualification" in mermaid
+    assert "csa_scoring" in mermaid
+    assert "compliance_oracle" in mermaid
+    assert "synthesizer" in mermaid
+
+
 # ── FMCSA API — improved normalization ────────────────────────────────────────
 
 def test_fmcsa_normalize_carrier_handles_boolean_allowed():
