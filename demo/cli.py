@@ -63,12 +63,7 @@ app = typer.Typer(help="Haul Copilot — Transportation Compliance Intelligence"
 
 BANNER = """
 [brand]
-███████╗██████╗ ███████╗██╗ ██████╗ ██╗  ██╗████████╗███╗   ███╗██╗███╗   ██╗██████╗
-██╔════╝██╔══██╗██╔════╝██║██╔════╝ ██║  ██║╚══██╔══╝████╗ ████║██║████╗  ██║██╔══██╗
-█████╗  ██████╔╝█████╗  ██║██║  ███╗███████║   ██║   ██╔████╔██║██║██╔██╗ ██║██║  ██║
-██╔══╝  ██╔══██╗██╔══╝  ██║██║   ██║██╔══██║   ██║   ██║╚██╔╝██║██║██║╚██╗██║██║  ██║
-██║     ██║  ██║███████╗██║╚██████╔╝██║  ██║   ██║   ██║ ╚═╝ ██║██║██║ ╚████║██████╔╝
-╚═╝     ╚═╝  ╚═╝╚══════╝╚═╝ ╚═════╝ ╚═╝  ╚═╝   ╚═╝   ╚═╝     ╚═╝╚═╝╚═╝  ╚═══╝╚═════╝
+[bold]HAUL COPILOT[/bold]
 [/brand]
 [dim]Multi-Agent Transportation Compliance Intelligence  ·  FMCSA · DOT · CSA · 49 CFR[/dim]
 """
@@ -440,7 +435,7 @@ def graph(
 def architecture(
     mermaid: bool = typer.Option(False, "--mermaid", help="Print raw Mermaid markup"),
 ):
-    """Show LangGraph routing architecture used by HaulCopilot."""
+    """Show LangGraph routing architecture used by Haul Copilot."""
     from src.graph.orchestrator import HaulCopilotOrchestrator
 
     mermaid_text = HaulCopilotOrchestrator.graph_mermaid()
@@ -543,7 +538,7 @@ def check(
             except Exception as e:
                 _record("Orchestrator query", False, str(e)[:90])
 
-    table = Table(title="HaulCopilot System Check", box=box.ROUNDED, border_style="brand")
+    table = Table(title="Haul Copilot System Check", box=box.ROUNDED, border_style="brand")
     table.add_column("Component", style="bold", width=24)
     table.add_column("Status", width=10)
     table.add_column("Detail", width=70)
@@ -743,7 +738,7 @@ def interactive():
 
     while True:
         try:
-            q = console.input("[bold cyan]haulcopilot>[/bold cyan] ").strip()
+            q = console.input("[bold cyan]haul-copilot>[/bold cyan] ").strip()
             if q.lower() in ("exit", "quit", "q", "/exit"):
                 break
             if not q:
