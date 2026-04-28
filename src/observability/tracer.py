@@ -29,6 +29,7 @@ class AgentTracer:
         self._dir = Path(trace_dir)
         self._dir.mkdir(parents=True, exist_ok=True)
         self._session_traces: list[AgentTrace] = []
+        self._session_timelines: dict[str, dict[str, Any]] = {}
         self._enabled = TRACE_ENABLED
 
     def record(self, trace: AgentTrace) -> None:
@@ -41,6 +42,38 @@ class AgentTracer:
         path = self._dir / f"traces_{date_str}.jsonl"
         with path.open("a") as f:
             f.write(trace.model_dump_json() + "\n")
+
+    def record_timeline(self, trace_id: str, timeline: dict[str, Any]) -> None:
+        self._session_timelines[trace_id] = timeline
+        if not self._enabled:
+            return
+        date_str = datetime.utcnow().strftime("%Y%m%d")
+        path = self._dir / f"orchestration_timelines_{date_str}.jsonl"
+        payload = {"trace_id": trace_id, **timeline}
+        with path.open("a") as f:
+            f.write(json.dumps(payload, default=str) + "\n")
+
+    def get_timeline(self, trace_id: str) -> dict[str, Any] | None:
+        if trace_id in self._session_timelines:
+            return self._session_timelines[trace_id]
+
+        date_str = datetime.utcnow().strftime("%Y%m%d")
+        path = self._dir / f"orchestration_timelines_{date_str}.jsonl"
+        if not path.exists():
+            return None
+
+        with path.open() as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    payload = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if payload.get("trace_id") == trace_id:
+                    return payload
+        return None
 
     def session_stats(self) -> dict[str, Any]:
         if not self._session_traces:
@@ -96,6 +129,7 @@ class AgentTracer:
 
     def clear_session(self) -> None:
         self._session_traces.clear()
+        self._session_timelines.clear()
 
 
 def get_tracer() -> AgentTracer:

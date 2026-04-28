@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+import uuid
 from typing import Any
 
 from dotenv import load_dotenv
@@ -8,9 +9,11 @@ load_dotenv()  # load .env before any module reads os.getenv at import time
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from src.graph.orchestrator import FreightMindOrchestrator
+from src.api.ingest_jobs import get_job_manager
+from src.compliance import audit_dqf_packet
 from src.eval.harness import EvalHarness
 from src.eval.test_cases import EVAL_SUITE
 from src.observability.tracer import get_tracer
@@ -54,6 +57,9 @@ class ComplianceResponse(BaseModel):
     intent: str | None
     response: str
     trace_id: str | None = None
+    route: str | None = None
+    timeline: list[dict[str, Any]] = Field(default_factory=list)
+    optimizer: dict[str, Any] | None = None
     latency_ms: float | None = None
     timestamp: str = ""
 
@@ -65,6 +71,20 @@ class ComplianceResponse(BaseModel):
 class EvalRequest(BaseModel):
     category: str | None = None
     n_cases: int | None = None
+
+
+class HumanReviewStartRequest(BaseModel):
+    query: str
+    thread_id: str | None = None
+
+
+class HumanReviewDecisionRequest(BaseModel):
+    approved: bool
+    reviewer_note: str | None = None
+
+
+class DQFAuditRequest(BaseModel):
+    packet: dict[str, Any]
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
@@ -91,8 +111,79 @@ def compliance_query(request: ComplianceQuery):
             intent=result.get("intent").value if result.get("intent") else None,
             response=result["response"],
             trace_id=result.get("metadata", {}).get("trace"),
+            route=result.get("metadata", {}).get("route"),
+            timeline=result.get("metadata", {}).get("timeline", []),
+            optimizer=result.get("metadata", {}).get("optimizer"),
             latency_ms=round(latency_ms, 1),
         )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/v1/compliance/query/optimized", response_model=ComplianceResponse)
+def compliance_query_optimized(request: ComplianceQuery):
+    """Compliance endpoint with evaluator-optimizer pass enabled."""
+    import time
+    t0 = time.perf_counter()
+    try:
+        orchestrator = get_orchestrator()
+        result = orchestrator.invoke_optimized(request.query)
+        latency_ms = (time.perf_counter() - t0) * 1000
+        return ComplianceResponse(
+            query=request.query,
+            intent=result.get("intent").value if result.get("intent") else None,
+            response=result["response"],
+            trace_id=result.get("metadata", {}).get("trace"),
+            route=result.get("metadata", {}).get("route"),
+            timeline=result.get("metadata", {}).get("timeline", []),
+            optimizer=result.get("metadata", {}).get("optimizer"),
+            latency_ms=round(latency_ms, 1),
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/v1/compliance/query/hitl")
+def compliance_query_hitl(request: HumanReviewStartRequest):
+    """Start a checkpointed human-in-the-loop compliance flow."""
+    orchestrator = get_orchestrator()
+    thread_id = request.thread_id or str(uuid.uuid4())
+    try:
+        result = orchestrator.invoke_hitl(query=request.query, thread_id=thread_id)
+        intent = result.get("intent")
+        return {
+            **result,
+            "intent": intent.value if hasattr(intent, "value") else intent,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/v1/compliance/query/hitl/{thread_id}/resume")
+def compliance_query_hitl_resume(thread_id: str, request: HumanReviewDecisionRequest):
+    """Resume a paused HITL flow with reviewer decision."""
+    orchestrator = get_orchestrator()
+    try:
+        result = orchestrator.resume_hitl(
+            thread_id=thread_id,
+            approved=request.approved,
+            reviewer_note=request.reviewer_note,
+        )
+        intent = result.get("intent")
+        return {
+            **result,
+            "intent": intent.value if hasattr(intent, "value") else intent,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/v1/compliance/query/hitl/{thread_id}")
+def compliance_query_hitl_state(thread_id: str):
+    """Inspect current state for a HITL thread."""
+    orchestrator = get_orchestrator()
+    try:
+        return orchestrator.hitl_state(thread_id=thread_id)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -133,6 +224,20 @@ def recent_traces(n: int = 10):
     return [t.model_dump() for t in traces]
 
 
+@app.get("/v1/observability/traces/{trace_id}")
+def trace_detail(trace_id: str):
+    """Return detailed trace payload, including orchestration timeline when available."""
+    tracer = get_tracer()
+    trace = next((t for t in tracer.recent_traces(n=500) if t.trace_id == trace_id), None)
+    timeline = tracer.get_timeline(trace_id)
+    if not trace and not timeline:
+        raise HTTPException(status_code=404, detail=f"Trace not found: {trace_id}")
+    return {
+        "trace": trace.model_dump() if trace else None,
+        "timeline": timeline,
+    }
+
+
 @app.post("/v1/eval/run")
 def run_eval(request: EvalRequest):
     """
@@ -154,6 +259,12 @@ def run_eval(request: EvalRequest):
         n_cases=request.n_cases,
     )
     return summary
+
+
+@app.post("/v1/dqf/audit")
+def dqf_audit(request: DQFAuditRequest):
+    """Audit DQF packet completeness/staleness and return rule-linked next steps."""
+    return audit_dqf_packet(request.packet)
 
 
 @app.get("/v1/eval/cases")
@@ -218,14 +329,71 @@ def graph_regulation(citation: str):
     return graph.find_carriers_with_violation(citation)
 
 
+@app.get("/v1/graph/architecture")
+def graph_architecture():
+    """Return the LangGraph topology as Mermaid markup for visualization/sharing."""
+    mermaid = FreightMindOrchestrator.graph_mermaid()
+    return {
+        "framework": "langgraph",
+        "format": "mermaid",
+        "diagram": mermaid,
+    }
+
+
 # ── Document ingestion endpoints ───────────────────────────────────────────────
 
 @app.post("/v1/ingest/text")
-def ingest_text(text: str, title: str = "Document", category: str = "REGULATION"):
+def ingest_text(
+    text: str,
+    title: str = "Document",
+    category: str = "REGULATION",
+    source_type: str = "regulation",
+):
     """Ingest raw text into the knowledge base."""
     from src.knowledge.ingester import DocumentIngester
     ingester = DocumentIngester()
-    return ingester.ingest_text(text, title=title, category=category)
+    return ingester.ingest_text(
+        text,
+        title=title,
+        category=category,
+        source_type=source_type,
+    )
+
+
+@app.post("/v1/ingest/pdf")
+def ingest_pdf(path: str, category: str = "REGULATION", source_type: str = "regulation"):
+    """Ingest a local PDF into the knowledge base."""
+    from src.knowledge.ingester import DocumentIngester
+    ingester = DocumentIngester()
+    return ingester.ingest_pdf(path, category=category, source_type=source_type)
+
+
+@app.post("/v1/ingest/image")
+def ingest_image(path: str, category: str = "INSPECTION", source_type: str = "inspection"):
+    """Ingest an image (scan/photo). Uses OCR when Docling is available."""
+    from src.knowledge.ingester import DocumentIngester
+    ingester = DocumentIngester()
+    return ingester.ingest_image(path, category=category, source_type=source_type)
+
+
+@app.post("/v1/ingest/audio")
+def ingest_audio_transcript(
+    transcript: str,
+    title: str = "Audio Transcript",
+    source: str = "audio_upload",
+    category: str = "INTERVIEW",
+    source_type: str = "guidance",
+):
+    """Ingest audio transcript text for multimodal MVP workflows."""
+    from src.knowledge.ingester import DocumentIngester
+    ingester = DocumentIngester()
+    return ingester.ingest_audio_transcript(
+        transcript=transcript,
+        title=title,
+        source=source,
+        category=category,
+        source_type=source_type,
+    )
 
 
 @app.post("/v1/ingest/inspection")
@@ -236,6 +404,31 @@ def ingest_inspection(report: dict):
     graph = get_graph()
     ingester = DocumentIngester(graph=graph)
     return ingester.ingest_inspection_report(report)
+
+
+@app.post("/v1/ingest/jobs")
+def submit_ingest_job(modality: str, source: str, category: str = "REGULATION"):
+    """Queue an async ingestion job for heavier ingest workloads."""
+    manager = get_job_manager()
+    job_id = manager.submit(modality=modality, source=source, category=category)
+    return {"job_id": job_id, "status": "queued"}
+
+
+@app.get("/v1/ingest/jobs/{job_id}")
+def ingest_job_status(job_id: str):
+    """Get status/result for a queued ingestion job."""
+    manager = get_job_manager()
+    payload = manager.get(job_id)
+    if not payload:
+        raise HTTPException(status_code=404, detail=f"Job not found: {job_id}")
+    return payload
+
+
+@app.get("/v1/ingest/jobs")
+def ingest_jobs_recent(n: int = 10):
+    """List recent ingestion jobs."""
+    manager = get_job_manager()
+    return manager.list_recent(n=n)
 
 
 # ── FMCSA API passthrough ──────────────────────────────────────────────────────

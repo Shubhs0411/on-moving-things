@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import mimetypes
 import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -44,7 +45,12 @@ class DocumentIngester:
 
     # ── Public API ─────────────────────────────────────────────────────────────
 
-    def ingest_pdf(self, path: str | Path, category: str = "REGULATION") -> dict[str, Any]:
+    def ingest_pdf(
+        self,
+        path: str | Path,
+        category: str = "REGULATION",
+        source_type: str = "regulation",
+    ) -> dict[str, Any]:
         """
         Ingest a PDF file. Uses Docling if available for layout-aware parsing
         (tables, multi-column), falls back to basic text extraction otherwise.
@@ -58,7 +64,13 @@ class DocumentIngester:
         else:
             text, metadata = self._parse_basic(path)
 
-        return self._ingest_text(text, metadata, category, source=str(path))
+        return self._ingest_text(
+            text,
+            metadata,
+            category,
+            source=str(path),
+            source_type=source_type,
+        )
 
     def ingest_text(
         self,
@@ -66,10 +78,53 @@ class DocumentIngester:
         title: str = "Ingested Document",
         category: str = "REGULATION",
         source: str = "manual",
+        source_type: str = "regulation",
     ) -> dict[str, Any]:
         """Ingest raw text directly — useful for pasted regulation excerpts."""
-        metadata = {"title": title, "source": source}
-        return self._ingest_text(text, metadata, category, source)
+        metadata = {"title": title, "source": source, "source_type": source_type}
+        return self._ingest_text(text, metadata, category, source, source_type=source_type)
+
+    def ingest_image(
+        self,
+        path: str | Path,
+        category: str = "INSPECTION",
+        source_type: str = "inspection",
+    ) -> dict[str, Any]:
+        """
+        Ingest an image file (scan/photo). Uses Docling OCR when available.
+        """
+        path = Path(path)
+        if not path.exists():
+            return {"error": f"File not found: {path}"}
+
+        if self._docling_available:
+            text, metadata = self._parse_with_docling(path)
+        else:
+            text, metadata = self._parse_basic(path)
+
+        metadata["modality"] = "image"
+        metadata["source_type"] = source_type
+        return self._ingest_text(text, metadata, category, source=str(path), source_type=source_type)
+
+    def ingest_audio_transcript(
+        self,
+        transcript: str,
+        title: str = "Audio Transcript",
+        source: str = "audio_upload",
+        category: str = "INTERVIEW",
+        source_type: str = "guidance",
+    ) -> dict[str, Any]:
+        """
+        Ingest already-transcribed audio text. Keeps modality metadata so
+        downstream evaluators can segment quality by input type.
+        """
+        metadata = {
+            "title": title,
+            "source": source,
+            "modality": "audio",
+            "source_type": source_type,
+        }
+        return self._ingest_text(transcript, metadata, category, source, source_type=source_type)
 
     def ingest_inspection_report(self, report: dict[str, Any]) -> dict[str, Any]:
         """
@@ -98,9 +153,10 @@ class DocumentIngester:
 
         kb_result = self._ingest_text(
             text,
-            {"title": f"Inspection {ins_id}", "source": "inspection_api"},
+            {"title": f"Inspection {ins_id}", "source": "inspection_api", "source_type": "inspection"},
             "INSPECTION",
             source=ins_id,
+            source_type="inspection",
         )
 
         # Add to knowledge graph
@@ -165,19 +221,28 @@ class DocumentIngester:
     def _parse_basic(self, path: Path) -> tuple[str, dict[str, Any]]:
         """Basic text extraction — works for plain text and simple PDFs."""
         suffix = path.suffix.lower()
+        mime, _ = mimetypes.guess_type(str(path))
         if suffix in (".txt", ".md"):
             text = path.read_text(encoding="utf-8", errors="replace")
         elif suffix == ".pdf":
             text = self._extract_pdf_text(path)
+        elif mime and mime.startswith("image/"):
+            text = (
+                f"[Image source: {path.name}]\n"
+                "OCR parser unavailable in basic mode. Install docling for OCR extraction."
+            )
         else:
-            text = path.read_text(encoding="utf-8", errors="replace")
+            try:
+                text = path.read_text(encoding="utf-8", errors="replace")
+            except Exception:
+                text = f"[Unsupported binary source: {path.name}]"
 
         return text, {"title": path.stem, "source": str(path), "parser": "basic"}
 
     def _extract_pdf_text(self, path: Path) -> str:
         """Minimal PDF text extraction without Docling."""
         try:
-            import pypdf
+            import pypdf  # type: ignore[import-not-found]
             reader = pypdf.PdfReader(str(path))
             return "\n\n".join(
                 page.extract_text() or "" for page in reader.pages
@@ -185,7 +250,7 @@ class DocumentIngester:
         except ImportError:
             pass
         try:
-            import pdfplumber
+            import pdfplumber  # type: ignore[import-not-found]
             with pdfplumber.open(str(path)) as pdf:
                 return "\n\n".join(p.extract_text() or "" for p in pdf.pages)
         except ImportError:
@@ -200,6 +265,7 @@ class DocumentIngester:
         metadata: dict[str, Any],
         category: str,
         source: str,
+        source_type: str = "regulation",
     ) -> dict[str, Any]:
         """Chunk text and upsert into ChromaDB."""
         chunks = self._chunk(text, metadata.get("title", source))
@@ -215,6 +281,8 @@ class DocumentIngester:
                 "category": category,
                 "keywords": ", ".join(_extract_keywords(c["text"])),
                 "source": source,
+                "modality": metadata.get("modality", "text"),
+                "source_type": metadata.get("source_type", source_type),
             }
             for c in chunks
         ]

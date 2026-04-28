@@ -10,6 +10,7 @@ from datetime import date
 from pathlib import Path
 
 import pytest
+from fastapi.testclient import TestClient
 
 
 # ── Knowledge Graph ────────────────────────────────────────────────────────────
@@ -510,3 +511,49 @@ def test_ingester_extract_citation_returns_none_for_no_match():
     from src.knowledge.ingester import _extract_citation
     result = _extract_citation("This text has no CFR citation at all.")
     assert result is None
+
+
+# ── DQF Auditor ───────────────────────────────────────────────────────────────
+
+def test_dqf_audit_flags_missing_and_stale_items():
+    from src.compliance.dqf import audit_dqf_packet
+
+    report = audit_dqf_packet(
+        {
+            "employment_application": True,
+            "mvr_initial": False,
+            "mvr_annual_review_date": "2024-01-10",
+            "medical_certificate_expiration": "2025-01-01",
+            "road_test_or_cdl_copy": True,
+            "clearinghouse_preemployment_query": False,
+        },
+        today=date(2026, 4, 27),
+    )
+    assert report["status"] == "non_compliant"
+    assert "mvr_initial" in report["missing_items"]
+    assert "medical_certificate_expiration" in report["stale_items"]
+    assert len(report["next_steps"]) >= 2
+
+
+def test_dqf_audit_endpoint_returns_summary():
+    from src.api.main import app
+
+    client = TestClient(app)
+    response = client.post(
+        "/v1/dqf/audit",
+        json={
+            "packet": {
+                "employment_application": True,
+                "mvr_initial": True,
+                "mvr_annual_review_date": "2026-04-01",
+                "medical_certificate_expiration": "2027-01-01",
+                "road_test_or_cdl_copy": True,
+                "clearinghouse_preemployment_query": True,
+                "clearinghouse_annual_query_date": "2026-03-15",
+            }
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert "status" in payload
+    assert "summary" in payload

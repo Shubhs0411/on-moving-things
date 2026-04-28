@@ -1,325 +1,271 @@
 # FreightMind AI
 
-**Multi-agent transportation compliance intelligence.**  
-FMCSA · DOT · CSA · 49 CFR — answered in seconds, cited to the paragraph.
+Multi-agent transportation compliance intelligence for FMCSA, DOT, CSA, and CFR workflows.
 
----
+## What This Project Delivers
 
-## What This Is
+FreightMind turns high-stakes compliance questions into evidence-backed recommendations with citations, traceability, and human approval controls where needed.
 
-Every day, shippers, brokers, and carriers make decisions under pressure with incomplete information:
-- *Is this carrier safe to use?*
-- *Can this driver legally operate today?*
-- *What's driving our CSA score up, and how do we fix it?*
-- *What does 49 CFR 395.3(a)(1) actually say?*
+Core outcome:
+- Not just question answering.
+- A decision-support system with provenance, specialist routing, evaluation, and auditability.
 
-FreightMind is a multi-agent AI system that answers those questions instantly, with citations, with reasoning shown, and with a feedback loop that knows whether the answers are right.
+## Architecture (All Stages)
 
----
+### Stage 1: System of Understanding
 
-## The Three Systems
+Purpose:
+- Convert regulations, inspections, and operational documents into searchable, typed evidence.
 
-Directly mirroring the architecture described in *On Moving Things*:
+What is implemented:
+- Text/PDF/image/audio-transcript ingestion.
+- Semantic retrieval via ChromaDB.
+- Knowledge graph context for carriers, drivers, violations, regulations.
+- Source provenance typing via source_type:
+  - regulation
+  - guidance
+  - policy
+  - inspection
 
-### System of Understanding — The Eye
-Regulations don't enter as data. They enter as PDFs, interpretive guidance, state variations, and compound rules that interact in non-obvious ways. FreightMind structures those fragments into a **semantic knowledge graph** (ChromaDB) over FMCSA HOS, Driver Qualification, CSA scoring, and operating authority rules. Every answer is grounded in retrieved regulatory text with CFR citations.
+### Stage 2: System of Velocity
 
+Purpose:
+- Route each query to the right specialist and produce actionable output quickly.
+
+What is implemented:
+- LangGraph orchestrator with specialist agents.
+- Router -> specialist -> synthesizer flow.
+- API-first runtime via FastAPI.
+- Async ingestion jobs for heavier ingestion workloads.
+- HITL interrupt/resume flow with checkpointed thread state.
+
+### Stage 3: System of Continuous Improvement
+
+Purpose:
+- Make quality measurable and improve behavior safely over time.
+
+What is implemented:
+- Agent tracing to JSONL.
+- Node-level orchestration timeline metadata.
+- Eval harness with 29 cases across major compliance categories.
+- Evaluator-optimizer endpoint for response quality rewrite pass.
+- DQF auditor module for rule-linked missing/stale checks and next steps.
+
+## Precise System Figure
+
+```mermaid
+flowchart LR
+    U[User Query] --> R[Router]
+    R -->|carrier_vetting| CV[Carrier Vetting Agent]
+    R -->|driver_qualification| DQ[Driver Qualification Agent]
+    R -->|csa_scoring| CSA[CSA Scoring Agent]
+    R -->|regulation_lookup/risk/multi_domain| CO[Compliance Oracle Agent]
+
+    CV --> AG[Approval Gate (HITL when required)]
+    DQ --> AG
+    CSA --> AG
+    CO --> AG
+
+    AG --> S[Synthesizer]
+    S --> O[Final Response + Citations]
+
+    O --> T[Trace + Node Timeline]
+    O --> E[Eval Harness / Optimizer]
+    O --> API[FastAPI Endpoints]
 ```
-data/regulations/
-├── fmcsa_hos.md          # 49 CFR Part 395 — Hours of Service
-├── fmcsa_driver_qual.md  # 49 CFR Part 391 — Driver Qualification Files
-├── csa_scoring.md        # CSA BASIC scoring methodology
-└── operating_authority.md # 49 CFR Parts 365/387 — Authority & Insurance
-```
-
-### System of Velocity — The Limbs
-Four specialist agents, composable tools, routed by a LangGraph state machine. A new agent can be added in an afternoon. The router runs in a single Claude call. The whole system is FastAPI endpoints.
-
-```
-User Query
-    │
-    ▼
-Router (claude-sonnet-4-6, one call, classifies intent)
-    │
-    ├──► CarrierVettingAgent    — DOT lookup, CSA scores, crash history
-    ├──► DriverQualAgent        — CDL, medical cert, Clearinghouse, DQ file
-    ├──► CSAScoringAgent        — BASIC percentiles, improvement plans
-    └──► ComplianceOracleAgent  — RAG over regulations, full CFR citations
-    │
-    ▼
-Synthesizer (formats, ensures citations, adds urgency signal)
-    │
-    ▼
-Response
-```
-
-### System of Continuous Improvement — The Nervous System
-Every agent call is traced. Every trace is scored against 29 ground-truth eval cases. The eval harness runs on-demand or in CI. Pass rate is visible in real time.
-
-```
-AgentTracer → traces_YYYYMMDD.jsonl
-EvalHarness → evals/results/eval_TIMESTAMP.json
-    29 cases × 6 categories × precision-scored
-```
-
----
-
-## Stack
-
-| Component | Technology | Why |
-|-----------|-----------|-----|
-| LLM | Anthropic Claude (`claude-opus-4-7`, `claude-sonnet-4-6`) | Opus for deep regulation Q&A; Sonnet for speed/cost on routing and vetting |
-| Agent orchestration | LangGraph 0.3+ | State machine for multi-agent routing, memory, conditional edges |
-| Vector store | ChromaDB | Local-first, zero-infra, cosine similarity over regulatory chunks |
-| API | FastAPI | REST endpoints, automatic OpenAPI docs |
-| CLI | Rich + Typer | Conference-ready terminal demo |
-| Data models | Pydantic v2 | Typed compliance domain entities |
-| Observability | Custom JSONL tracer | Every tool call, token count, latency — persisted |
-| Eval | Custom harness | 29 cases, keyword recall + citation recall + status accuracy |
-
----
-
-## Quick Start
-
-```bash
-# 1. Install
-pip install -e ".[dev]"
-
-# 2. Configure
-cp .env.example .env
-# Add your ANTHROPIC_API_KEY to .env
-
-# 3. Run interactive demo
-python demo/cli.py interactive
-
-# 4. Run full system checks (graph + FMCSA + docling + ingestion)
-python demo/cli.py check
-
-# 5. View LangGraph routing architecture
-python demo/cli.py architecture
-
-# 6. Run scripted demo (expanded query set)
-python demo/cli.py demo
-
-# 7. Run eval harness
-python demo/cli.py eval
-
-# 8. Start API server
-uvicorn src.api.main:app --reload
-# Docs at http://localhost:8000/docs
-```
-
----
-
-## CLI Commands (Full)
-
-```bash
-# Interactive shell with slash shortcuts
-python demo/cli.py interactive
-
-# One-shot system health checks (KB + graph + FMCSA + docling + ingestion)
-python demo/cli.py check
-python demo/cli.py check --run-query
-python demo/cli.py check --strict
-
-# Architecture view (LangGraph)
-python demo/cli.py architecture
-python demo/cli.py architecture --mermaid
-
-# Scripted product demo
-python demo/cli.py demo
-
-# Single compliance query
-python demo/cli.py query "Run a full safety check on DOT 2345678"
-
-# Show system status dashboard
-python demo/cli.py status
-
-# Knowledge graph views
-python demo/cli.py graph 2345678
-python demo/cli.py graph 2345678 --mermaid
-
-# Ingest text or PDF into knowledge base
-python demo/cli.py ingest data/regulations/fmcsa_hos.md --category HOS
-python demo/cli.py ingest /path/to/inspection.pdf --category INSPECTION
-
-# Eval harness
-python demo/cli.py eval
-python demo/cli.py eval --category csa_scoring
-python demo/cli.py eval --n 10
-
-# Tip: eval now runs a preflight auth/model check and fails fast with a clear
-# error if ANTHROPIC_API_KEY/model access is misconfigured.
-```
-
-### Interactive Shortcuts
-
-```text
-/help
-/status
-/graph 2345678
-/arch
-/exit
-```
-
-## Query Library (All 29 Eval-Backed Queries)
-
-Use any of these with:
-
-```bash
-python demo/cli.py query "<QUERY>"
-```
-
-### Carrier Vetting
-
-- Is carrier with DOT number 1234567 safe to use for a general freight shipment?
-- Can I use DOT 2345678 for a hazmat shipment? They have a conditional safety rating.
-- Run a safety check on Sunrise Freight Partners, DOT 3456789
-- What is the compliance status of Blue Ridge Distribution Co, DOT 4567890?
-- Frontier Carriers (DOT 5678901) wants to haul for us. Should I be concerned about their controlled substances score?
-- Use FMCSA inspection history for DOT 2345678 and tell me the top 3 CFR citations driving risk.
-
-### Driver Qualification
-
-- Is driver CDL-TX-001234 qualified to operate a Class A combination vehicle pulling a tanker?
-- Check driver CDL-OH-005678. Can they drive today?
-- Is CDL-FL-003456 eligible for safety-sensitive duties?
-- What are the DQ file requirements for a new hire CDL driver under FMCSA rules?
-- Driver CDL-NY-007890 wants to haul hazmat. Are they properly endorsed?
-
-### CSA Scoring
-
-- DOT 2345678 has a vehicle maintenance score of 91.3. What does that mean and what should they do?
-- Explain how CSA scores are calculated and what the intervention thresholds are.
-- DOT 2345678 has an HOS score of 82.1. What violations are likely driving this and how do we fix it?
-- How does DOT 1234567's vehicle maintenance score of 58.3 compare to the threshold?
-- What is the crash indicator BASIC and how is it different from other BASICs?
-- DOT 2345678 has repeated brake and HOS violations from recent inspections. Give a 30-day corrective action plan.
-
-### Regulation Lookup
-
-- How many hours can a property-carrying driver drive in a day before they need to stop?
-- When is a driver required to take a 30-minute rest break?
-- What are the ELD exemptions? Which drivers don't need an ELD?
-- What is the minimum liability insurance requirement for a dry van carrier hauling general freight?
-- How does the 34-hour restart work? What are the requirements?
-- What is the sleeper berth provision and how does it work for splitting rest time?
-- Which FMCSA rules are most relevant when a carrier shows false logs and controlled substance violations in inspections?
-
-### Risk Assessment
-
-- A new motor carrier applied to haul for us. They have 5 power units, no safety rating yet, and only 12 inspections. How should I evaluate their risk?
-- What signals should a broker look at to vet a carrier quickly before tendering a load?
-- A driver failed a pre-employment drug test 6 months ago at a different company. Can they drive for us now?
-
-### Multi-Domain
-
-- We're hiring a driver who has a Class A CDL expiring in 2 months, a medical cert that expired last week, and their Clearinghouse shows CLEAR. What's their compliance status?
-- DOT 2345678 has a fatal crash, CSA alerts on 4 BASICs, and a conditional safety rating. Should I load them?
-
----
-
-## API Endpoints
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `POST` | `/v1/compliance/query` | Main compliance Q&A endpoint |
-| `POST` | `/v1/carrier/vet?dot_number=X` | Direct carrier vetting |
-| `POST` | `/v1/driver/qualify?license_number=X` | Direct driver qualification check |
-| `GET` | `/v1/observability/stats` | Real-time session metrics |
-| `GET` | `/v1/observability/traces` | Recent agent traces |
-| `POST` | `/v1/eval/run` | Run eval harness |
-| `POST` | `/v1/knowledge/search` | Direct knowledge base search |
-
----
-
-## Eval Harness
-
-29 test cases across 6 domains:
-
-| Domain | Cases | What's Tested |
-|--------|-------|---------------|
-| `carrier_vetting` | 6 | Operating authority, CSA alerts, inactive carriers, FMCSA inspection-derived risk |
-| `driver_qualification` | 5 | CDL validity, Clearinghouse PROHIBITED, refused drug test, DQ file gaps |
-| `csa_scoring` | 6 | BASIC thresholds, improvement plans, inspection-driven corrective actions |
-| `regulation_lookup` | 7 | HOS limits, ELD exemptions, 34-hour restart, sleeper berth, inspection-linked citations |
-| `risk_assessment` | 3 | New entrants, broker checklist, hiring risk scenarios |
-| `multi_domain` | 2 | Combined safety, CSA, and qualification risk synthesis |
-
-Scoring: `0.5 × keyword_recall + 0.2 × citation_recall + 0.15 × status_accuracy + 0.15 × risk_accuracy`  
-Pass threshold: ≥ 0.60
-
-```bash
-# Run all 29 cases
-python demo/cli.py eval
-
-# Run just driver qualification cases
-python demo/cli.py eval --category driver_qualification
-
-# Run live evals through pytest (fails if pass rate < 0.60)
-python -m pytest evals/test_eval_harness.py -v
-
-# Optional knobs for pytest bridge
-EVAL_MIN_PASS_RATE=0.80 EVAL_N_CASES=10 python -m pytest evals/test_eval_harness.py -v
-```
-
----
 
 ## Project Structure
 
-```
-freightmind-ai/
-├── src/
-│   ├── models/domain.py          # Pydantic entities: Carrier, Driver, CSAScore, ComplianceReport
-│   ├── knowledge/
-│   │   ├── regulations.py        # Document loader + chunker
-│   │   └── vectorstore.py        # ChromaDB: ingest, search, RAG context
-│   ├── agents/
-│   │   ├── base.py               # Agentic loop, tracing, tool dispatch
-│   │   ├── compliance_oracle.py  # Regulatory Q&A (claude-opus-4-7)
-│   │   ├── carrier_vetting.py    # Carrier safety checks
-│   │   ├── driver_qual.py        # Driver qualification (49 CFR 391)
-│   │   └── csa_scoring.py        # CSA BASIC interpretation
-│   ├── graph/orchestrator.py     # LangGraph: router → agent → synthesizer
-│   ├── eval/
-│   │   ├── harness.py            # Scoring + persistence
-│   │   └── test_cases.py         # 29 ground-truth eval cases
-│   ├── observability/tracer.py   # JSONL tracing + session metrics
-│   └── api/main.py               # FastAPI REST endpoints
+```text
+on-moving-things/
+├── README.md
+├── pyproject.toml
 ├── data/
-│   ├── regulations/              # FMCSA/DOT knowledge documents
-│   └── mock/                     # Carrier + driver test fixtures
-├── demo/cli.py                   # Rich terminal demo + CLI
-├── evals/results/                # Eval run outputs
-└── pyproject.toml
+│   ├── regulations/
+│   └── mock/
+├── demo/
+│   ├── cli.py
+│   └── project_demo.sh
+├── evals/
+│   ├── test_unit.py
+│   └── results/
+└── src/
+    ├── agents/
+    ├── api/
+    │   ├── main.py
+    │   └── ingest_jobs.py
+    ├── compliance/
+    │   ├── __init__.py
+    │   └── dqf.py
+    ├── eval/
+    ├── graph/
+    │   └── orchestrator.py
+    ├── knowledge/
+    │   └── ingester.py
+    ├── models/
+    └── observability/
+        └── tracer.py
 ```
 
----
+## Installation
 
-## Domain Coverage
+```bash
+python3.11 -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]"
+cp .env.example .env
+# set ANTHROPIC_API_KEY in .env
+```
 
-- **Hours of Service (HOS):** 11-hour driving limit, 14-hour window, 60/70-hour rule, 34-hour restart, sleeper berth, ELD requirements and exemptions
-- **Driver Qualification:** CDL classes/endorsements, medical certification, FMCSA National Registry, Drug & Alcohol Clearinghouse, DQ file requirements (49 CFR 391.51)
-- **CSA Scoring:** All 7 BASICs, intervention thresholds, time-weighting, DataQs process, improvement planning
-- **Operating Authority:** MC/DOT registration, SAFER lookup, insurance minimums by commodity type, new entrant requirements
-- **Drug & Alcohol:** Pre-employment/annual Clearinghouse queries, prohibited status, Return-to-Duty process
+## UI Setup and Run
 
----
+```bash
+source .venv/bin/activate
+uvicorn src.api.main:app --reload
+```
 
-## Design Principles
+UI endpoints:
+- Swagger UI: http://localhost:8000/docs
+- ReDoc: http://localhost:8000/redoc
 
-**Grounded, not hallucinated.** Every regulation answer is retrieved from the knowledge base before Claude responds. The system knows what it doesn't know.
+## One-Command Capability Demo
 
-**Composable.** Adding a new agent (e.g., HazMat specialist, insurance underwriting agent) requires one new file and two lines in the LangGraph graph.
+```bash
+source .venv/bin/activate
+./demo/project_demo.sh
+```
 
-**Observable.** Every call is traced. Latency, tokens, tool calls, errors — all visible. The eval harness runs on the same live system, not a mock.
+This runs:
+- LangGraph architecture export.
+- HITL start/resume flow.
+- DQF audit endpoint.
+- Async ingest job.
+- Quick eval sample.
 
-**Direct.** The person asking these questions is making a real decision under pressure. The system gives a clear answer, not a hedge.
+## API Surface (Key Endpoints)
 
----
+Compliance and orchestration:
+- POST /v1/compliance/query
+- POST /v1/compliance/query/optimized
+- POST /v1/compliance/query/hitl
+- POST /v1/compliance/query/hitl/{thread_id}/resume
+- GET /v1/compliance/query/hitl/{thread_id}
 
-## Author
+Observability and graph:
+- GET /v1/observability/stats
+- GET /v1/observability/traces
+- GET /v1/observability/traces/{trace_id}
+- GET /v1/graph/architecture
+- GET /v1/graph/carrier/{dot_number}
+- GET /v1/graph/driver/{license_number}
 
-**Shubham Deshmukh**  
-MS Computer Science, Virginia Tech  
-[github.com/Shubhs0411](https://github.com/Shubhs0411) · [linkedin.com/in/shubhdesh](https://linkedin.com/in/shubhdesh)
+Ingestion:
+- POST /v1/ingest/text
+- POST /v1/ingest/pdf
+- POST /v1/ingest/image
+- POST /v1/ingest/audio
+- POST /v1/ingest/inspection
+- POST /v1/ingest/jobs
+- GET /v1/ingest/jobs/{job_id}
+- GET /v1/ingest/jobs
+
+Compliance ops:
+- POST /v1/dqf/audit
+- POST /v1/eval/run
+- GET /v1/eval/cases
+
+## Demo Queries (All Possibilities)
+
+### A) Core Compliance Query
+
+```bash
+curl -s -X POST http://localhost:8000/v1/compliance/query \
+  -H "Content-Type: application/json" \
+  -d '{"query":"Run a full safety check on DOT 2345678"}'
+```
+
+### B) Optimized Evaluator Pass
+
+```bash
+curl -s -X POST http://localhost:8000/v1/compliance/query/optimized \
+  -H "Content-Type: application/json" \
+  -d '{"query":"Assess DOT 2345678 for high-value hazmat load risk"}'
+```
+
+### C) HITL Interrupt and Resume
+
+```bash
+curl -s -X POST http://localhost:8000/v1/compliance/query/hitl \
+  -H "Content-Type: application/json" \
+  -d '{"query":"Should we approve DOT 2345678 for hazmat today?"}'
+
+curl -s -X POST http://localhost:8000/v1/compliance/query/hitl/<THREAD_ID>/resume \
+  -H "Content-Type: application/json" \
+  -d '{"approved": true, "reviewer_note": "Approved after manual review"}'
+
+curl -s http://localhost:8000/v1/compliance/query/hitl/<THREAD_ID>
+```
+
+### D) DQF Auditor
+
+```bash
+curl -s -X POST http://localhost:8000/v1/dqf/audit \
+  -H "Content-Type: application/json" \
+  -d '{
+    "packet": {
+      "employment_application": true,
+      "mvr_initial": false,
+      "mvr_annual_review_date": "2024-01-10",
+      "medical_certificate_expiration": "2025-01-05",
+      "road_test_or_cdl_copy": true,
+      "clearinghouse_preemployment_query": false
+    }
+  }'
+```
+
+### E) Multimodal Ingestion
+
+```bash
+# text
+curl -s -X POST "http://localhost:8000/v1/ingest/text?text=49%20CFR%20395.3(a)(1)%20driving%20limit&title=HOS%20Rule&source_type=regulation"
+
+# pdf
+curl -s -X POST "http://localhost:8000/v1/ingest/pdf?path=/absolute/path/to/file.pdf&category=REGULATION&source_type=regulation"
+
+# image
+curl -s -X POST "http://localhost:8000/v1/ingest/image?path=/absolute/path/to/scan.png&category=INSPECTION&source_type=inspection"
+
+# audio transcript
+curl -s -X POST "http://localhost:8000/v1/ingest/audio?transcript=Driver%20call%20notes%20about%20HOS&title=Call%20Transcript&source_type=guidance"
+```
+
+### F) Async Ingestion Jobs
+
+```bash
+curl -s -X POST "http://localhost:8000/v1/ingest/jobs?modality=text&source=49%20CFR%20391.23%20MVR%20requirement&category=REGULATION"
+curl -s "http://localhost:8000/v1/ingest/jobs/<JOB_ID>"
+curl -s "http://localhost:8000/v1/ingest/jobs?n=10"
+```
+
+### G) Architecture + Trace Introspection
+
+```bash
+curl -s http://localhost:8000/v1/graph/architecture
+curl -s http://localhost:8000/v1/observability/stats
+curl -s http://localhost:8000/v1/observability/traces
+curl -s http://localhost:8000/v1/observability/traces/<TRACE_ID>
+```
+
+## Why This Architecture Works
+
+- It distinguishes evidence type and provenance, not just embeddings.
+- It keeps sensitive decisions human-controlled via checkpointed HITL.
+- It is modular enough to evolve quickly without rewriting the stack.
+- It has measurable feedback loops via traces, timelines, and evals.
+
+## Test
+
+```bash
+source .venv/bin/activate
+python -m pytest evals/test_unit.py -q
+```

@@ -1,11 +1,16 @@
 from __future__ import annotations
 
 import os
+import time
+import uuid
+from datetime import datetime
 from typing import Any, Annotated, Literal
 
 import anthropic
+from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import StateGraph, END
 from langgraph.graph.message import add_messages
+from langgraph.types import Command, interrupt
 from typing_extensions import TypedDict
 
 from src.agents import (
@@ -16,6 +21,7 @@ from src.agents import (
 )
 from src.knowledge.vectorstore import FreightKnowledgeBase
 from src.models.domain import QueryIntent
+from src.observability.tracer import get_tracer
 
 
 ROUTER_MODEL = os.getenv("AGENT_MODEL", "claude-sonnet-4-6")
@@ -70,6 +76,8 @@ class FreightMindOrchestrator:
         self._oracle_agent = ComplianceOracleAgent(kb=self._kb)
 
         self._graph = self._build_graph()
+        self._hitl_checkpointer = MemorySaver()
+        self._hitl_graph = self._build_hitl_graph()
 
     def _build_graph(self) -> Any:
         builder = StateGraph(FreightState)
@@ -98,6 +106,40 @@ class FreightMindOrchestrator:
         builder.add_edge("synthesizer", END)
 
         return builder.compile()
+
+    def _build_hitl_graph(self) -> Any:
+        """Graph variant with an explicit human approval interrupt gate."""
+        builder = StateGraph(FreightState)
+
+        builder.add_node("router", self._router_node)
+        builder.add_node("approval_gate", self._approval_gate_node)
+        builder.add_node("carrier_vetting", self._carrier_node)
+        builder.add_node("driver_qualification", self._driver_node)
+        builder.add_node("csa_scoring", self._csa_node)
+        builder.add_node("compliance_oracle", self._oracle_node)
+        builder.add_node("synthesizer", self._synthesizer_node)
+        builder.add_node("halted", self._halted_node)
+
+        builder.set_entry_point("router")
+        builder.add_edge("router", "approval_gate")
+        builder.add_conditional_edges(
+            "approval_gate",
+            self._route_after_approval,
+            {
+                "carrier_vetting": "carrier_vetting",
+                "driver_qualification": "driver_qualification",
+                "csa_scoring": "csa_scoring",
+                "compliance_oracle": "compliance_oracle",
+                "multi_domain": "compliance_oracle",
+                "halted": "halted",
+            },
+        )
+        for agent_node in ["carrier_vetting", "driver_qualification", "csa_scoring", "compliance_oracle"]:
+            builder.add_edge(agent_node, "synthesizer")
+        builder.add_edge("synthesizer", END)
+        builder.add_edge("halted", END)
+
+        return builder.compile(checkpointer=self._hitl_checkpointer)
 
     def _router_node(self, state: FreightState) -> FreightState:
         """Classify query intent using Claude with structured output."""
@@ -143,6 +185,71 @@ Respond with ONLY the category name, nothing else.""",
             return "multi_domain"
         return "compliance_oracle"
 
+    def _approval_gate_node(self, state: FreightState) -> FreightState:
+        """Interrupt execution until a human explicitly approves sensitive flows."""
+        intent = state.get("intent")
+        requires_approval = intent in {
+            QueryIntent.CARRIER_VETTING,
+            QueryIntent.DRIVER_QUALIFICATION,
+            QueryIntent.MULTI_DOMAIN,
+        }
+        metadata = {**state.get("metadata", {})}
+        metadata["requires_human_approval"] = requires_approval
+
+        if not requires_approval:
+            return {**state, "metadata": metadata}
+
+        decision = interrupt(
+            {
+                "type": "human_approval",
+                "intent": intent.value if intent else None,
+                "query": state.get("query", ""),
+                "reason": "Sensitive compliance recommendation path requires human approval.",
+                "allowed_actions": ["approve", "reject"],
+            }
+        )
+
+        approved = self._is_approved(decision)
+        metadata["human_review"] = {
+            "approved": approved,
+            "decision_payload": decision,
+        }
+        if not approved:
+            metadata["halted_by_human"] = True
+        return {**state, "metadata": metadata}
+
+    def _route_after_approval(self, state: FreightState) -> str:
+        if state.get("metadata", {}).get("halted_by_human"):
+            return "halted"
+        return self._route_to_agent(state)
+
+    def _halted_node(self, state: FreightState) -> FreightState:
+        decision_payload = state.get("metadata", {}).get("human_review", {}).get("decision_payload")
+        reviewer_note = None
+        if isinstance(decision_payload, dict):
+            reviewer_note = decision_payload.get("reviewer_note")
+        note_line = f" Reviewer note: {reviewer_note}" if reviewer_note else ""
+        return {
+            **state,
+            "agent_response": (
+                "Execution stopped by human reviewer before specialist agent execution."
+                f"{note_line}"
+            ),
+        }
+
+    def _is_approved(self, decision: Any) -> bool:
+        if isinstance(decision, dict):
+            raw = decision.get("approved")
+            if isinstance(raw, bool):
+                return raw
+            if isinstance(raw, str):
+                return raw.strip().lower() in {"true", "1", "yes", "approve", "approved"}
+        if isinstance(decision, bool):
+            return decision
+        if isinstance(decision, str):
+            return decision.strip().lower() in {"true", "1", "yes", "approve", "approved"}
+        return False
+
     def _carrier_node(self, state: FreightState) -> FreightState:
         result = self._carrier_agent.run(state["query"])
         return {**state, "agent_response": result["response"], "metadata": {"agent": "carrier_vetting", "trace": result["trace"].trace_id}}
@@ -184,7 +291,123 @@ Do NOT add new information. Do NOT remove critical findings. Only improve clarit
         return {**state, "agent_response": final_response}
 
     def invoke(self, query: str) -> dict[str, Any]:
-        """Main entry point. Returns final response and metadata."""
+        """Main entry point with node-level timeline metadata for observability."""
+        state: FreightState = {
+            "query": query,
+            "intent": None,
+            "agent_response": "",
+            "metadata": {},
+            "messages": [],
+        }
+
+        timeline: list[dict[str, Any]] = []
+
+        def run_node(name: str, fn: Any, current_state: FreightState) -> FreightState:
+            t0 = time.perf_counter()
+            started_at = datetime.utcnow().isoformat()
+            updated = fn(current_state)
+            ended_at = datetime.utcnow().isoformat()
+            latency_ms = round((time.perf_counter() - t0) * 1000, 2)
+            timeline.append(
+                {
+                    "node": name,
+                    "started_at": started_at,
+                    "ended_at": ended_at,
+                    "latency_ms": latency_ms,
+                    "status": "ok",
+                }
+            )
+            return updated
+
+        state = run_node("router", self._router_node, state)
+        route = self._route_to_agent(state)
+        route_map = {
+            "carrier_vetting": self._carrier_node,
+            "driver_qualification": self._driver_node,
+            "csa_scoring": self._csa_node,
+            "compliance_oracle": self._oracle_node,
+            "multi_domain": self._oracle_node,
+        }
+        agent_fn = route_map.get(route, self._oracle_node)
+        state = run_node(route, agent_fn, state)
+        state = run_node("synthesizer", self._synthesizer_node, state)
+
+        metadata = state.get("metadata", {})
+        metadata = {**metadata, "route": route, "timeline": timeline}
+
+        trace_id = metadata.get("trace")
+        if trace_id:
+            get_tracer().record_timeline(
+                trace_id,
+                {
+                    "query": query,
+                    "intent": state.get("intent").value if state.get("intent") else None,
+                    "route": route,
+                    "nodes": timeline,
+                },
+            )
+
+        return {
+            "query": query,
+            "intent": state.get("intent"),
+            "response": state.get("agent_response", ""),
+            "metadata": metadata,
+        }
+
+    def invoke_optimized(self, query: str) -> dict[str, Any]:
+        """
+        Evaluator-optimizer loop MVP:
+        1) Run standard orchestration.
+        2) Ask evaluator prompt to keep or rewrite for clarity/actionability/citations.
+        """
+        base = self.invoke(query)
+        response_text = base.get("response", "")
+        eval_resp = self._client.messages.create(
+            model=ROUTER_MODEL,
+            max_tokens=1024,
+            system=(
+                "You are a strict compliance-response evaluator. "
+                "Assess if the response is clear, actionable, and grounded. "
+                "If good enough, return exactly: DECISION: KEEP\nREWRITE_RESPONSE: <original response>. "
+                "If weak, return exactly: DECISION: REWRITE\nREWRITE_RESPONSE: <improved response>."
+            ),
+            messages=[
+                {
+                    "role": "user",
+                    "content": (
+                        f"QUERY:\n{query}\n\n"
+                        f"RESPONSE:\n{response_text}\n\n"
+                        "Use status -> findings -> recommendations format."
+                    ),
+                }
+            ],
+        )
+        eval_text = eval_resp.content[0].text if eval_resp.content else ""
+        decision = "KEEP" if "DECISION: KEEP" in eval_text else "REWRITE"
+        marker = "REWRITE_RESPONSE:"
+        if marker in eval_text:
+            optimized = eval_text.split(marker, 1)[1].strip()
+        else:
+            optimized = response_text
+        if not optimized:
+            optimized = response_text
+
+        metadata = {**base.get("metadata", {})}
+        metadata["optimizer"] = {
+            "enabled": True,
+            "decision": decision,
+            "applied": decision == "REWRITE",
+        }
+        return {
+            **base,
+            "response": optimized,
+            "metadata": metadata,
+        }
+
+    def invoke_hitl(self, query: str, thread_id: str | None = None) -> dict[str, Any]:
+        """Start HITL flow and pause at approval gate when required."""
+        thread_id = thread_id or str(uuid.uuid4())
+        config = {"configurable": {"thread_id": thread_id}}
         initial_state: FreightState = {
             "query": query,
             "intent": None,
@@ -192,12 +415,70 @@ Do NOT add new information. Do NOT remove critical findings. Only improve clarit
             "metadata": {},
             "messages": [],
         }
-        final_state = self._graph.invoke(initial_state)
+        result = self._hitl_graph.invoke(initial_state, config=config)
+        if "__interrupt__" in result:
+            interrupts = result.get("__interrupt__", [])
+            payloads = []
+            for i in interrupts:
+                payloads.append({"id": getattr(i, "id", None), "value": getattr(i, "value", None)})
+            return {
+                "status": "waiting_for_human",
+                "thread_id": thread_id,
+                "interrupts": payloads,
+                "query": query,
+            }
+        return self._format_hitl_result(result, thread_id=thread_id)
+
+    def resume_hitl(self, thread_id: str, approved: bool, reviewer_note: str | None = None) -> dict[str, Any]:
+        """Resume a paused HITL flow with explicit human approval decision."""
+        config = {"configurable": {"thread_id": thread_id}}
+        result = self._hitl_graph.invoke(
+            Command(resume={"approved": approved, "reviewer_note": reviewer_note}),
+            config=config,
+        )
+        if "__interrupt__" in result:
+            interrupts = result.get("__interrupt__", [])
+            payloads = []
+            for i in interrupts:
+                payloads.append({"id": getattr(i, "id", None), "value": getattr(i, "value", None)})
+            return {
+                "status": "waiting_for_human",
+                "thread_id": thread_id,
+                "interrupts": payloads,
+            }
+        return self._format_hitl_result(result, thread_id=thread_id)
+
+    def hitl_state(self, thread_id: str) -> dict[str, Any]:
+        """Return current checkpoint state for a HITL thread."""
+        config = {"configurable": {"thread_id": thread_id}}
+        snapshot = self._hitl_graph.get_state(config)
+        values = snapshot.values or {}
+        intent = values.get("intent")
         return {
-            "query": query,
-            "intent": final_state.get("intent"),
-            "response": final_state.get("agent_response", ""),
-            "metadata": final_state.get("metadata", {}),
+            "thread_id": thread_id,
+            "next": list(snapshot.next),
+            "has_interrupts": bool(snapshot.interrupts),
+            "interrupts": [
+                {"id": getattr(i, "id", None), "value": getattr(i, "value", None)}
+                for i in snapshot.interrupts
+            ],
+            "query": values.get("query"),
+            "intent": intent.value if intent else None,
+            "metadata": values.get("metadata", {}),
+            "response": values.get("agent_response", ""),
+        }
+
+    def _format_hitl_result(self, result: dict[str, Any], thread_id: str) -> dict[str, Any]:
+        intent = result.get("intent")
+        metadata = {**result.get("metadata", {})}
+        metadata["thread_id"] = thread_id
+        return {
+            "status": "completed",
+            "thread_id": thread_id,
+            "query": result.get("query"),
+            "intent": intent,
+            "response": result.get("agent_response", ""),
+            "metadata": metadata,
         }
 
     @classmethod
