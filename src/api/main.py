@@ -11,7 +11,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-from src.graph.orchestrator import FreightMindOrchestrator
+from src.graph.orchestrator import RigCompassOrchestrator
 from src.api.ingest_jobs import get_job_manager
 from src.compliance import audit_dqf_packet
 from src.eval.harness import EvalHarness
@@ -21,7 +21,7 @@ from src.models.domain import QueryIntent
 
 
 app = FastAPI(
-    title="FreightMind AI",
+    title="RigCompass AI",
     description="Multi-agent transportation compliance intelligence. FMCSA · DOT · CSA · 49 CFR.",
     version="0.1.0",
     docs_url="/docs",
@@ -35,13 +35,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-_orchestrator: FreightMindOrchestrator | None = None
+_orchestrator: RigCompassOrchestrator | None = None
 
 
-def get_orchestrator() -> FreightMindOrchestrator:
+def get_orchestrator() -> RigCompassOrchestrator:
     global _orchestrator
     if _orchestrator is None:
-        _orchestrator = FreightMindOrchestrator()
+        _orchestrator = RigCompassOrchestrator()
     return _orchestrator
 
 
@@ -91,7 +91,7 @@ class DQFAuditRequest(BaseModel):
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "service": "FreightMind AI", "version": "0.1.0"}
+    return {"status": "ok", "service": "RigCompass AI", "version": "0.1.0"}
 
 
 @app.post("/v1/compliance/query", response_model=ComplianceResponse)
@@ -332,7 +332,7 @@ def graph_regulation(citation: str):
 @app.get("/v1/graph/architecture")
 def graph_architecture():
     """Return the LangGraph topology as Mermaid markup for visualization/sharing."""
-    mermaid = FreightMindOrchestrator.graph_mermaid()
+    mermaid = RigCompassOrchestrator.graph_mermaid()
     return {
         "framework": "langgraph",
         "format": "mermaid",

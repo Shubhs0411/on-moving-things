@@ -29,7 +29,7 @@ class ComplianceOracleAgent(BaseComplianceAgent):
 
     @property
     def system_prompt(self) -> str:
-        return """You are the FreightMind Compliance Oracle — an expert on FMCSA, DOT, and transportation compliance regulations.
+        return """You are the RigCompass Compliance Oracle — an expert on FMCSA, DOT, and transportation compliance regulations.
 
 Your role: Answer compliance questions with precision, cite the specific CFR section, and explain practical implications.
 

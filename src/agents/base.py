@@ -19,7 +19,7 @@ ORACLE_MODEL = os.getenv("ORACLE_MODEL", "claude-opus-4-7")
 
 class BaseComplianceAgent(ABC):
     """
-    Base class for all FreightMind compliance agents.
+    Base class for all RigCompass compliance agents.
     Handles tracing, token accounting, and structured tool-use loops with Claude.
     """
 

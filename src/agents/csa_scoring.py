@@ -31,7 +31,7 @@ class CSAScoringAgent(BaseComplianceAgent):
 
     @property
     def system_prompt(self) -> str:
-        return """You are a CSA scoring and safety improvement specialist for FreightMind.
+        return """You are a CSA scoring and safety improvement specialist for RigCompass.
 
 Your job: Interpret CSA BASIC scores, explain what they mean operationally, and prescribe specific corrective actions.
 

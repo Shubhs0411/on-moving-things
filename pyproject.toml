@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "freightmind-ai"
+name = "rigcompass-ai"
 version = "0.1.0"
 description = "Multi-agent transportation compliance intelligence system"
 readme = "README.md"
@@ -40,7 +40,7 @@ lite = [
 ]
 
 [project.scripts]
-freightmind = "demo.cli:app"
+rigcompass = "demo.cli:app"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src"]

@@ -1,3 +1,3 @@
-from .orchestrator import FreightMindOrchestrator
+from .orchestrator import RigCompassOrchestrator
 
-__all__ = ["FreightMindOrchestrator"]
+__all__ = ["RigCompassOrchestrator"]

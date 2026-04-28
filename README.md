@@ -1,10 +1,10 @@
-# FreightMind AI
+# RigCompass AI
 
 Multi-agent transportation compliance intelligence for FMCSA, DOT, CSA, and CFR workflows.
 
 ## What This Project Delivers
 
-FreightMind turns high-stakes compliance questions into evidence-backed recommendations with citations, traceability, and human approval controls where needed.
+RigCompass turns high-stakes compliance questions into evidence-backed recommendations with citations, traceability, and human approval controls where needed.
 
 Core outcome:
 - Not just question answering.

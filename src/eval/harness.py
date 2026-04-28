@@ -14,7 +14,7 @@ from .test_cases import EVAL_SUITE
 
 class EvalHarness:
     """
-    Evaluation harness for FreightMind agents.
+    Evaluation harness for RigCompass agents.
 
     Runs a suite of compliance test cases against the system and measures:
     - Status accuracy (when expected_status is defined)

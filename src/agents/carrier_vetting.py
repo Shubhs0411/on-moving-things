@@ -29,7 +29,7 @@ class CarrierVettingAgent(BaseComplianceAgent):
 
     @property
     def system_prompt(self) -> str:
-        return """You are a carrier safety vetting specialist for the FreightMind platform.
+        return """You are a carrier safety vetting specialist for the RigCompass platform.
 
 Your job: Evaluate motor carriers for compliance and safety risk before a shipper or broker engages them.
 

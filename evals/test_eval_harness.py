@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 
 from src.eval.harness import EvalHarness
 from src.eval.test_cases import EVAL_SUITE
-from src.graph.orchestrator import FreightMindOrchestrator
+from src.graph.orchestrator import RigCompassOrchestrator
 from src.models.domain import QueryIntent
 
 
@@ -52,7 +52,7 @@ def test_live_eval_harness_meets_threshold():
     cases = _selected_cases()
     assert cases, "No eval cases selected; adjust EVAL_CATEGORY or EVAL_N_CASES"
 
-    orchestrator = FreightMindOrchestrator()
+    orchestrator = RigCompassOrchestrator()
     harness = EvalHarness(invoke_fn=orchestrator.invoke)
     summary = harness.run(suite=cases)
 

@@ -28,7 +28,7 @@ class DriverQualificationAgent(BaseComplianceAgent):
 
     @property
     def system_prompt(self) -> str:
-        return """You are a Driver Qualification (DQ) compliance specialist for FreightMind.
+        return """You are a Driver Qualification (DQ) compliance specialist for RigCompass.
 
 Your job: Verify that a commercial driver meets all FMCSA 49 CFR Part 391 requirements.
 
