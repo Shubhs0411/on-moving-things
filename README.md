@@ -61,7 +61,7 @@ flowchart LR
     R -->|csa_scoring| CSA[CSA Scoring Agent]
     R -->|regulation_lookup/risk/multi_domain| CO[Compliance Oracle Agent]
 
-    CV --> AG[Approval Gate (HITL when required)]
+    CV --> AG[Approval Gate: HITL when required]
     DQ --> AG
     CSA --> AG
     CO --> AG
