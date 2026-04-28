@@ -1,10 +1,10 @@
-# RigCompass AI
+# Haul Copilot AI
 
 Multi-agent transportation compliance intelligence for FMCSA, DOT, CSA, and CFR workflows.
 
 ## What This Project Delivers
 
-RigCompass turns high-stakes compliance questions into evidence-backed recommendations with citations, traceability, and human approval controls where needed.
+Haul Copilot turns high-stakes compliance questions into evidence-backed recommendations with citations, traceability, and human approval controls where needed.
 
 Core outcome:
 - Not just question answering.

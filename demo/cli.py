@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-RigCompass AI — Interactive CLI Demo
+HaulCopilot AI — Interactive CLI Demo
 Multi-agent transportation compliance intelligence.
 
 Usage:
@@ -58,7 +58,7 @@ theme = Theme({
     "header": "bold white on #0f172a",
 })
 console = Console(theme=theme)
-app = typer.Typer(help="RigCompass AI — Transportation Compliance Intelligence")
+app = typer.Typer(help="HaulCopilot AI — Transportation Compliance Intelligence")
 
 
 BANNER = """
@@ -212,7 +212,7 @@ def _print_agents():
     console.print()
 
 
-def _run_query_demo(query_info: dict, orchestrator: "RigCompassOrchestrator") -> None:
+def _run_query_demo(query_info: dict, orchestrator: "HaulCopilotOrchestrator") -> None:
     console.rule(f"[bold]{query_info['title']}[/bold]")
     console.print(f"[dim]Testing: {query_info['why']}[/dim]")
     console.print()
@@ -260,10 +260,10 @@ def demo():
         _print_agents()
         return
 
-    from src.graph.orchestrator import RigCompassOrchestrator
+    from src.graph.orchestrator import HaulCopilotOrchestrator
     with Progress(SpinnerColumn(), TextColumn("[progress.description]{task.description}"), console=console, transient=True) as p:
-        t = p.add_task("[cyan]Initializing RigCompass AI (loading knowledge base)...", total=None)
-        orchestrator = RigCompassOrchestrator()
+        t = p.add_task("[cyan]Initializing HaulCopilot AI (loading knowledge base)...", total=None)
+        orchestrator = HaulCopilotOrchestrator()
         p.update(t, description="[green]System ready")
 
     _print_agents()
@@ -440,10 +440,10 @@ def graph(
 def architecture(
     mermaid: bool = typer.Option(False, "--mermaid", help="Print raw Mermaid markup"),
 ):
-    """Show LangGraph routing architecture used by RigCompass."""
-    from src.graph.orchestrator import RigCompassOrchestrator
+    """Show LangGraph routing architecture used by HaulCopilot."""
+    from src.graph.orchestrator import HaulCopilotOrchestrator
 
-    mermaid_text = RigCompassOrchestrator.graph_mermaid()
+    mermaid_text = HaulCopilotOrchestrator.graph_mermaid()
     if mermaid:
         console.print(mermaid_text)
         return
@@ -535,15 +535,15 @@ def check(
             _record("Orchestrator query", False, "skipped: ANTHROPIC_API_KEY missing")
         else:
             try:
-                from src.graph.orchestrator import RigCompassOrchestrator
-                orchestrator = RigCompassOrchestrator()
+                from src.graph.orchestrator import HaulCopilotOrchestrator
+                orchestrator = HaulCopilotOrchestrator()
                 result = orchestrator.invoke(f"Run a quick safety check on DOT {dot}")
                 intent = result.get("intent")
                 _record("Orchestrator query", True, f"intent={intent.value if intent else 'N/A'}")
             except Exception as e:
                 _record("Orchestrator query", False, str(e)[:90])
 
-    table = Table(title="RigCompass System Check", box=box.ROUNDED, border_style="brand")
+    table = Table(title="HaulCopilot System Check", box=box.ROUNDED, border_style="brand")
     table.add_column("Component", style="bold", width=24)
     table.add_column("Status", width=10)
     table.add_column("Detail", width=70)
@@ -615,13 +615,13 @@ def eval(
         console.print("[red]ANTHROPIC_API_KEY not set.[/red]")
         raise typer.Exit(1)
 
-    from src.graph.orchestrator import RigCompassOrchestrator
+    from src.graph.orchestrator import HaulCopilotOrchestrator
     from src.eval.harness import EvalHarness
     from src.eval.test_cases import EVAL_SUITE
     from src.models.domain import QueryIntent
 
-    console.print("[cyan]Loading RigCompass AI...[/cyan]")
-    orchestrator = RigCompassOrchestrator()
+    console.print("[cyan]Loading HaulCopilot AI...[/cyan]")
+    orchestrator = HaulCopilotOrchestrator()
     harness = EvalHarness(invoke_fn=orchestrator.invoke)
 
     # Preflight to avoid running a full suite when auth/model config is broken.
@@ -715,9 +715,9 @@ def query(q: str = typer.Argument(..., help="Compliance question to ask")):
         console.print("[red]ANTHROPIC_API_KEY not set.[/red]")
         raise typer.Exit(1)
 
-    from src.graph.orchestrator import RigCompassOrchestrator
+    from src.graph.orchestrator import HaulCopilotOrchestrator
     console.print("[dim]Loading...[/dim]")
-    orchestrator = RigCompassOrchestrator()
+    orchestrator = HaulCopilotOrchestrator()
     t0 = time.perf_counter()
     result = orchestrator.invoke(q)
     latency = (time.perf_counter() - t0) * 1000
@@ -735,15 +735,15 @@ def interactive():
         console.print("[red]ANTHROPIC_API_KEY not set. See .env.example.[/red]")
         raise typer.Exit(1)
 
-    from src.graph.orchestrator import RigCompassOrchestrator
-    console.print("[cyan]Loading RigCompass AI...[/cyan]")
-    orchestrator = RigCompassOrchestrator()
+    from src.graph.orchestrator import HaulCopilotOrchestrator
+    console.print("[cyan]Loading HaulCopilot AI...[/cyan]")
+    orchestrator = HaulCopilotOrchestrator()
     console.print("[green]Ready. Type your compliance question or '/exit' to quit.[/green]\n")
     _print_quick_commands()
 
     while True:
         try:
-            q = console.input("[bold cyan]rigcompass>[/bold cyan] ").strip()
+            q = console.input("[bold cyan]haulcopilot>[/bold cyan] ").strip()
             if q.lower() in ("exit", "quit", "q", "/exit"):
                 break
             if not q:

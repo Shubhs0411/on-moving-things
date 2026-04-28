@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# RigCompass project demo script
+# Haul Copilot project demo script
 # Purpose: show LangGraph visibility, HITL interrupt/resume, multimodal ingest, and eval signal.
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -19,7 +19,7 @@ python demo/cli.py architecture --mermaid | head -n 20
 
 echo
 echo "[2/7] Starting API server"
-uvicorn src.api.main:app --host 127.0.0.1 --port 8000 >/tmp/rigcompass_demo_uvicorn.log 2>&1 &
+uvicorn src.api.main:app --host 127.0.0.1 --port 8000 >/tmp/haulcopilot_demo_uvicorn.log 2>&1 &
 SERVER_PID=$!
 cleanup() {
   kill "$SERVER_PID" >/dev/null 2>&1 || true

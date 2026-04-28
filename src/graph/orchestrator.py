@@ -35,7 +35,7 @@ class FreightState(TypedDict):
     messages: Annotated[list[dict[str, Any]], add_messages]
 
 
-class RigCompassOrchestrator:
+class HaulCopilotOrchestrator:
     """
     LangGraph-based multi-agent orchestrator.
     Routes incoming compliance queries to the right specialist agent.
@@ -271,7 +271,7 @@ Respond with ONLY the category name, nothing else.""",
         response = self._client.messages.create(
             model=ROUTER_MODEL,
             max_tokens=1024,
-            system="""You are the final output formatter for RigCompass, a transportation compliance AI.
+            system="""You are the final output formatter for HaulCopilot, a transportation compliance AI.
 
 Your job: Take the agent's response and ensure it is:
 1. Clearly structured (status → findings → recommendations)

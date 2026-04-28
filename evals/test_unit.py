@@ -431,9 +431,9 @@ def test_graph_find_carriers_with_violation_returns_sorted():
 
 
 def test_orchestrator_graph_mermaid_contains_topology_nodes():
-    from src.graph.orchestrator import RigCompassOrchestrator
+    from src.graph.orchestrator import HaulCopilotOrchestrator
 
-    mermaid = RigCompassOrchestrator.graph_mermaid()
+    mermaid = HaulCopilotOrchestrator.graph_mermaid()
     assert mermaid.startswith("flowchart LR")
     assert "router" in mermaid
     assert "carrier_vetting" in mermaid
