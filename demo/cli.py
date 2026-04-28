@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-HaulCopilot AI — Interactive CLI Demo
+Haul Copilot — Interactive CLI Demo
 Multi-agent transportation compliance intelligence.
 
 Usage:
@@ -58,7 +58,7 @@ theme = Theme({
     "header": "bold white on #0f172a",
 })
 console = Console(theme=theme)
-app = typer.Typer(help="HaulCopilot AI — Transportation Compliance Intelligence")
+app = typer.Typer(help="Haul Copilot — Transportation Compliance Intelligence")
 
 
 BANNER = """
@@ -262,7 +262,7 @@ def demo():
 
     from src.graph.orchestrator import HaulCopilotOrchestrator
     with Progress(SpinnerColumn(), TextColumn("[progress.description]{task.description}"), console=console, transient=True) as p:
-        t = p.add_task("[cyan]Initializing HaulCopilot AI (loading knowledge base)...", total=None)
+        t = p.add_task("[cyan]Initializing Haul Copilot (loading knowledge base)...", total=None)
         orchestrator = HaulCopilotOrchestrator()
         p.update(t, description="[green]System ready")
 
@@ -620,7 +620,7 @@ def eval(
     from src.eval.test_cases import EVAL_SUITE
     from src.models.domain import QueryIntent
 
-    console.print("[cyan]Loading HaulCopilot AI...[/cyan]")
+    console.print("[cyan]Loading Haul Copilot...[/cyan]")
     orchestrator = HaulCopilotOrchestrator()
     harness = EvalHarness(invoke_fn=orchestrator.invoke)
 
@@ -736,7 +736,7 @@ def interactive():
         raise typer.Exit(1)
 
     from src.graph.orchestrator import HaulCopilotOrchestrator
-    console.print("[cyan]Loading HaulCopilot AI...[/cyan]")
+    console.print("[cyan]Loading Haul Copilot...[/cyan]")
     orchestrator = HaulCopilotOrchestrator()
     console.print("[green]Ready. Type your compliance question or '/exit' to quit.[/green]\n")
     _print_quick_commands()

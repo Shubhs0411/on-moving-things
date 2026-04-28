@@ -1,4 +1,4 @@
-# Haul Copilot AI
+# Haul Copilot
 
 Multi-agent transportation compliance intelligence for FMCSA, DOT, CSA, and CFR workflows.
 

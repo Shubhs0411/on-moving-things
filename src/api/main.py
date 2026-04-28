@@ -21,7 +21,7 @@ from src.models.domain import QueryIntent
 
 
 app = FastAPI(
-    title="HaulCopilot AI",
+    title="Haul Copilot",
     description="Multi-agent transportation compliance intelligence. FMCSA · DOT · CSA · 49 CFR.",
     version="0.1.0",
     docs_url="/docs",
@@ -91,7 +91,7 @@ class DQFAuditRequest(BaseModel):
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "service": "HaulCopilot AI", "version": "0.1.0"}
+    return {"status": "ok", "service": "Haul Copilot", "version": "0.1.0"}
 
 
 @app.post("/v1/compliance/query", response_model=ComplianceResponse)
