@@ -5,459 +5,372 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Can I Park Here?</title>
   <style>
-    /* ── Reset & Base ── */
+    /* ── Reset & tokens ─────────────────────────────────────── */
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     :root {
       --green:   #27AE60;
       --red:     #E74C3C;
-      --amber:   #F39C12;
+      --amber:   #E67E22;
       --purple:  #8E44AD;
-      --gray:    #BDC3C7;
-      --dark:    #1A1A2E;
-      --mid:     #16213E;
-      --ink:     #0F3460;
-      --white:   #FAFAFA;
-      --cell-h:  14px;
+      --dark:    #12121F;
+      --surface: #1A1A2E;
+      --card:    #16213E;
+      --line:    rgba(255,255,255,0.07);
+      --text:    #F0F0F0;
+      --muted:   rgba(240,240,240,0.45);
+      --cell-h:  13px;
+      --radius:  14px;
     }
 
-    body {
-      font-family: 'Helvetica Neue', Arial, sans-serif;
-      background: var(--dark);
-      color: var(--white);
-      min-height: 100vh;
-    }
+    body { font-family: 'Helvetica Neue', Arial, sans-serif;
+           background: var(--dark); color: var(--text); min-height: 100vh; }
 
     /* ── Header ── */
     header {
-      background: var(--mid);
-      padding: 1.2rem 2rem;
-      display: flex;
-      align-items: center;
-      gap: 1rem;
-      border-bottom: 3px solid var(--ink);
+      background: var(--surface);
+      padding: 1rem 1.5rem;
+      display: flex; align-items: center; gap: .9rem;
+      border-bottom: 2px solid var(--line);
     }
-    header svg { flex-shrink: 0; }
-    header h1 { font-size: 1.4rem; font-weight: 900; letter-spacing: -0.5px; }
-    header p  { font-size: 0.78rem; opacity: 0.6; margin-top: 2px; }
-
-    /* ── Main layout ── */
-    main {
-      max-width: 960px;
-      margin: 0 auto;
-      padding: 2rem 1rem 4rem;
+    header .logo {
+      width: 36px; height: 36px; border-radius: 8px; background: var(--green);
+      display: grid; place-items: center;
+      font-size: 1.2rem; font-weight: 900; color: #fff; flex-shrink: 0;
     }
+    header h1 { font-size: 1.25rem; font-weight: 900; letter-spacing: -.3px; }
+    header p  { font-size: .75rem; color: var(--muted); margin-top: 1px; }
 
-    /* ── Upload card ── */
-    .upload-card {
-      background: var(--mid);
-      border-radius: 16px;
-      padding: 2rem;
-      border: 1px solid rgba(255,255,255,0.08);
+    main { max-width: 900px; margin: 0 auto; padding: 1.8rem 1rem 5rem; }
+
+    /* ── Card base ── */
+    .card {
+      background: var(--card); border-radius: var(--radius);
+      border: 1px solid var(--line); padding: 1.6rem;
     }
 
+    /* ── Upload ── */
     .drop-zone {
-      border: 2.5px dashed rgba(255,255,255,0.25);
-      border-radius: 12px;
-      padding: 3rem 2rem;
-      text-align: center;
-      cursor: pointer;
-      transition: border-color 0.2s, background 0.2s;
-      position: relative;
+      border: 2px dashed rgba(255,255,255,.2); border-radius: 10px;
+      padding: 2.4rem 1.5rem; text-align: center; cursor: pointer;
+      transition: border-color .2s, background .2s; position: relative;
     }
-    .drop-zone:hover, .drop-zone.dragover {
-      border-color: rgba(255,255,255,0.6);
-      background: rgba(255,255,255,0.03);
+    .drop-zone:hover, .drop-zone.over {
+      border-color: rgba(255,255,255,.5); background: rgba(255,255,255,.02);
     }
-    .drop-zone input[type=file] {
-      position: absolute; inset: 0; opacity: 0; cursor: pointer;
-      width: 100%; height: 100%;
-    }
-    .drop-icon { font-size: 3rem; margin-bottom: 0.75rem; }
-    .drop-label { font-size: 1.1rem; font-weight: 700; }
-    .drop-sub   { font-size: 0.82rem; opacity: 0.5; margin-top: 0.4rem; }
+    .drop-zone input { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; }
+    .drop-icon  { font-size: 2.6rem; line-height: 1; }
+    .drop-label { font-size: 1rem; font-weight: 700; margin-top: .5rem; }
+    .drop-sub   { font-size: .75rem; color: var(--muted); margin-top: .3rem; }
 
-    .preview-wrap {
-      display: none;
-      margin-top: 1.2rem;
-      border-radius: 10px;
-      overflow: hidden;
-      max-height: 280px;
-      text-align: center;
-      background: #000;
+    .preview-wrap { display: none; margin-top: 1rem; border-radius: 8px; overflow: hidden;
+                    max-height: 240px; text-align: center; background: #000; }
+    .preview-wrap img { max-height: 240px; max-width: 100%; object-fit: contain; }
+
+    /* ── Form grid ── */
+    .form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px,1fr));
+                 gap: .9rem; margin-top: 1.3rem; }
+
+    label.field { display: flex; flex-direction: column; gap: .35rem; }
+    .field-label {
+      font-size: .68rem; font-weight: 800; letter-spacing: .1em;
+      text-transform: uppercase; color: var(--muted);
     }
-    .preview-wrap img {
-      max-height: 280px;
-      max-width: 100%;
-      object-fit: contain;
+    select, input[type=text] {
+      background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.12);
+      border-radius: 8px; color: var(--text); padding: .55rem .8rem;
+      font-size: .88rem; width: 100%; appearance: none;
     }
 
-    /* ── Form fields ── */
-    .form-row {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 1rem;
-      margin-top: 1.5rem;
+    /* ── Toggle switches ── */
+    .toggles { display: flex; flex-wrap: wrap; gap: .7rem; margin-top: 1rem; }
+    .toggle-btn {
+      display: flex; align-items: center; gap: .5rem;
+      background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.12);
+      border-radius: 8px; padding: .5rem .9rem; font-size: .84rem; cursor: pointer;
+      transition: background .15s, border-color .15s; user-select: none;
     }
-    .field-group { flex: 1; min-width: 180px; }
-    .field-group label {
-      display: block;
-      font-size: 0.75rem;
-      font-weight: 700;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      opacity: 0.6;
-      margin-bottom: 0.5rem;
+    .toggle-btn input { display: none; }
+    .toggle-btn .pip {
+      width: 16px; height: 16px; border-radius: 50%; border: 2px solid rgba(255,255,255,.3);
+      flex-shrink: 0; transition: background .15s, border-color .15s;
     }
-    .field-group select,
-    .field-group input[type=text] {
-      width: 100%;
-      background: rgba(255,255,255,0.07);
-      border: 1px solid rgba(255,255,255,0.15);
-      border-radius: 8px;
-      color: var(--white);
-      padding: 0.6rem 0.9rem;
-      font-size: 0.9rem;
-      appearance: none;
-    }
-    .checkbox-row {
-      display: flex;
-      align-items: center;
-      gap: 0.6rem;
-      margin-top: 1.2rem;
-      font-size: 0.9rem;
-    }
-    .checkbox-row input[type=checkbox] {
-      width: 18px; height: 18px; accent-color: var(--green); cursor: pointer;
-    }
+    .toggle-btn input:checked ~ .pip  { background: var(--green); border-color: var(--green); }
+    .toggle-btn:has(input:checked)    { border-color: var(--green); background: rgba(39,174,96,.12); }
 
     /* ── Check button ── */
     #checkBtn {
-      display: block;
-      margin-top: 1.5rem;
-      width: 100%;
-      padding: 1rem;
-      background: var(--green);
-      color: #fff;
-      font-size: 1.05rem;
-      font-weight: 900;
-      letter-spacing: 0.04em;
-      text-transform: uppercase;
-      border: none;
-      border-radius: 10px;
-      cursor: pointer;
-      transition: opacity 0.2s, transform 0.1s;
+      margin-top: 1.3rem; width: 100%; padding: .95rem;
+      background: var(--green); color: #fff;
+      font-size: 1rem; font-weight: 900; letter-spacing: .05em; text-transform: uppercase;
+      border: none; border-radius: 10px; cursor: pointer;
+      transition: opacity .2s, transform .1s;
     }
-    #checkBtn:hover  { opacity: 0.9; }
-    #checkBtn:active { transform: scale(0.98); }
-    #checkBtn:disabled { opacity: 0.4; cursor: not-allowed; }
+    #checkBtn:hover  { opacity: .88; }
+    #checkBtn:active { transform: scale(.98); }
+    #checkBtn:disabled { opacity: .35; cursor: not-allowed; }
+
+    /* ── OCR tab ── */
+    .tab-bar { display: flex; gap: .4rem; margin-bottom: 1rem; }
+    .tab-btn {
+      padding: .45rem 1rem; border-radius: 8px; border: 1px solid var(--line);
+      background: transparent; color: var(--muted); font-size: .82rem;
+      font-weight: 700; cursor: pointer; transition: background .15s, color .15s;
+    }
+    .tab-btn.active { background: rgba(255,255,255,.09); color: var(--text); }
+
+    #ocrPanel { display: none; }
+    #ocrText {
+      width: 100%; min-height: 110px; background: rgba(255,255,255,.07);
+      border: 1px solid rgba(255,255,255,.12); border-radius: 8px;
+      color: var(--text); padding: .7rem .9rem; font-size: .88rem;
+      font-family: 'Courier New', monospace; resize: vertical;
+    }
 
     /* ── Loader ── */
-    #loader {
-      display: none;
-      text-align: center;
-      padding: 3rem 1rem;
-    }
+    #loader { display: none; text-align: center; padding: 2.5rem 1rem; }
     .spinner {
-      width: 48px; height: 48px;
-      border: 4px solid rgba(255,255,255,0.1);
-      border-top-color: var(--green);
-      border-radius: 50%;
-      animation: spin 0.8s linear infinite;
-      margin: 0 auto 1rem;
+      width: 44px; height: 44px; border: 3px solid rgba(255,255,255,.1);
+      border-top-color: var(--green); border-radius: 50%;
+      animation: spin .75s linear infinite; margin: 0 auto .8rem;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
-    #loader p { opacity: 0.6; font-size: 0.9rem; }
+    #loader p { color: var(--muted); font-size: .88rem; }
 
     /* ── Error ── */
-    #error-msg {
-      display: none;
-      background: rgba(231,76,60,0.15);
-      border: 1px solid var(--red);
-      border-radius: 10px;
-      padding: 1rem 1.2rem;
-      color: #FF6B6B;
-      margin-top: 1rem;
-      font-size: 0.9rem;
+    #errBox {
+      display: none; background: rgba(231,76,60,.12);
+      border: 1px solid var(--red); border-radius: 10px;
+      padding: .9rem 1.1rem; color: #FF8070; margin-top: .9rem; font-size: .88rem;
     }
 
-    /* ════════════════════════════════════════════════
-       RESULTS  —  Nikki Sylianteng style
-    ════════════════════════════════════════════════ */
-    #results { display: none; margin-top: 2.5rem; }
+    /* ══════════════════════════════════════════
+       RESULTS
+    ══════════════════════════════════════════ */
+    #results { display: none; margin-top: 2rem; }
 
     /* ── Verdict banner ── */
     .verdict-banner {
-      border-radius: 16px;
-      padding: 2rem 2.5rem;
-      margin-bottom: 2rem;
-      position: relative;
-      overflow: hidden;
+      border-radius: var(--radius); padding: 1.8rem 2rem;
+      margin-bottom: 1.5rem; position: relative; overflow: hidden;
     }
-    .verdict-banner.can   { background: var(--green); }
-    .verdict-banner.cant  { background: var(--red);   }
-    .verdict-banner.timed { background: var(--amber);  color: #1a1a1a; }
-    .verdict-banner.permit{ background: var(--purple); }
+    .v-can    { background: var(--green); }
+    .v-cant   { background: var(--red);   }
+    .v-timed  { background: var(--amber);  color: #1a1a1a; }
+    .v-permit { background: var(--purple); }
 
-    .verdict-flag {
-      font-size: 0.75rem;
-      font-weight: 900;
-      letter-spacing: 0.14em;
-      text-transform: uppercase;
-      opacity: 0.8;
+    .v-eyebrow {
+      font-size: .7rem; font-weight: 800; letter-spacing: .12em;
+      text-transform: uppercase; opacity: .8; margin-bottom: .3rem;
     }
-    .verdict-main {
-      font-size: clamp(2rem, 6vw, 3.6rem);
-      font-weight: 900;
-      line-height: 1.05;
-      margin-top: 0.3rem;
-      letter-spacing: -1px;
+    .v-headline {
+      font-size: clamp(1.8rem, 5vw, 3.2rem); font-weight: 900;
+      line-height: 1.05; letter-spacing: -1px; white-space: pre-line;
     }
-    .verdict-sub {
-      margin-top: 0.7rem;
-      font-size: 1rem;
-      opacity: 0.85;
+    .v-reason {
+      margin-top: .6rem; font-size: .95rem; opacity: .88; line-height: 1.5;
     }
-    .verdict-bg-text {
-      position: absolute;
-      right: -10px;
-      top: 50%;
-      transform: translateY(-50%);
-      font-size: clamp(5rem, 18vw, 11rem);
-      font-weight: 900;
-      opacity: 0.08;
-      line-height: 1;
-      pointer-events: none;
-      user-select: none;
+    .v-bg {
+      position: absolute; right: -8px; top: 50%; transform: translateY(-50%);
+      font-size: clamp(4rem, 15vw, 9rem); font-weight: 900;
+      opacity: .07; pointer-events: none; user-select: none; line-height: 1;
     }
 
-    /* ── Schedule section ── */
-    .schedule-section {
-      background: var(--mid);
-      border-radius: 16px;
-      padding: 1.5rem;
-      border: 1px solid rgba(255,255,255,0.06);
-      overflow-x: auto;
+    /* ── Next-change pill ── */
+    .next-pill {
+      display: inline-flex; align-items: center; gap: .4rem;
+      background: rgba(0,0,0,.25); border-radius: 20px;
+      padding: .3rem .9rem; font-size: .78rem; font-weight: 700;
+      margin-top: .8rem;
     }
-    .schedule-title {
-      font-size: 0.7rem;
-      font-weight: 900;
-      letter-spacing: 0.14em;
-      text-transform: uppercase;
-      opacity: 0.45;
-      margin-bottom: 1.2rem;
+    .next-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+
+    /* ── Warnings ── */
+    .warnings-list { margin-top: 1rem; display: flex; flex-direction: column; gap: .5rem; }
+    .warn-item {
+      display: flex; align-items: flex-start; gap: .6rem;
+      background: rgba(255,255,255,.06); border-radius: 8px;
+      padding: .6rem .9rem; font-size: .82rem; line-height: 1.5;
+    }
+    .warn-icon { flex-shrink: 0; margin-top: 1px; }
+
+    /* ── Two-column layout ── */
+    .results-cols { display: grid; gap: 1.2rem; }
+    @media (min-width: 660px) {
+      .results-cols { grid-template-columns: 1fr 1fr; }
     }
 
-    /* ── Grid ── */
+    /* ── Schedule ── */
+    .section-label {
+      font-size: .65rem; font-weight: 800; letter-spacing: .12em;
+      text-transform: uppercase; color: var(--muted); margin-bottom: .9rem;
+    }
     .park-grid {
       display: grid;
-      /* col 0: time labels, cols 1-7: days */
-      grid-template-columns: 52px repeat(7, 1fr);
-      gap: 2px;
-      min-width: 460px;
+      grid-template-columns: 46px repeat(7, 1fr);
+      gap: 2px; min-width: 340px;
     }
-
-    .gh { /* grid header cell */
-      font-size: 0.68rem;
-      font-weight: 900;
-      letter-spacing: 0.08em;
-      text-align: center;
-      padding: 4px 0 8px;
-      opacity: 0.5;
+    .gh {
+      font-size: .62rem; font-weight: 800; letter-spacing: .07em;
+      text-align: center; padding: 3px 0 6px; color: var(--muted);
     }
-    .gh.today {
-      opacity: 1;
-      color: #fff;
-      position: relative;
-    }
+    .gh.today { color: var(--text); position: relative; }
     .gh.today::after {
-      content: '';
-      display: block;
-      margin: 3px auto 0;
-      width: 5px; height: 5px;
-      border-radius: 50%;
-      background: currentColor;
+      content: ''; display: block; margin: 2px auto 0;
+      width: 4px; height: 4px; border-radius: 50%; background: currentColor;
     }
-
-    .tl { /* time label */
-      font-size: 0.62rem;
-      opacity: 0.35;
-      text-align: right;
-      padding-right: 6px;
-      line-height: var(--cell-h);
-      height: var(--cell-h);
-      white-space: nowrap;
+    .tl {
+      font-size: .58rem; color: var(--muted); text-align: right;
+      padding-right: 5px; line-height: var(--cell-h); height: var(--cell-h);
     }
-    .tl.now-label {
-      opacity: 1;
-      font-weight: 700;
-      color: #fff;
+    .tl.now-lbl { color: var(--text); font-weight: 800; }
+    .gc {
+      height: var(--cell-h); border-radius: 1.5px;
+      transition: opacity .12s;
     }
+    .gc:hover { opacity: .65; }
+    .gc.CAN_PARK        { background: var(--green); }
+    .gc.CANNOT_PARK     { background: var(--red);   }
+    .gc.TIMED_PARK      { background: var(--amber); }
+    .gc.PERMIT_REQUIRED { background: var(--purple);}
+    .gc.now-cell { outline: 2px solid #fff; outline-offset: -1px; z-index: 2; position: relative; }
 
-    .gc { /* grid cell */
-      height: var(--cell-h);
-      border-radius: 2px;
-      position: relative;
-      transition: opacity 0.15s;
-    }
-    .gc:hover { opacity: 0.75; }
-
-    .gc.CAN_PARK       { background: var(--green);  }
-    .gc.CANNOT_PARK    { background: var(--red);    }
-    .gc.TIMED_PARK     { background: var(--amber);  }
-    .gc.PERMIT_REQUIRED{ background: var(--purple); }
-
-    /* "YOU ARE HERE" row highlight */
-    .gc.now-cell {
-      outline: 2px solid #fff;
-      outline-offset: -1px;
-      z-index: 2;
-    }
-
-    /* Empty placeholder for the header row's time column */
-    .gh-spacer { grid-column: 1; }
-
-    /* ── The "you are here" bar ── */
-    .you-are-here-row {
-      display: contents; /* participates in grid */
-    }
-    .yah-label {
-      font-size: 0.6rem;
-      font-weight: 900;
-      color: #fff;
-      text-align: right;
-      padding-right: 6px;
-      white-space: nowrap;
-      line-height: var(--cell-h);
-      height: var(--cell-h);
-      letter-spacing: 0.04em;
+    .yah-lbl {
+      font-size: .56rem; font-weight: 900; color: var(--text);
+      text-align: right; padding-right: 5px; height: var(--cell-h);
+      line-height: var(--cell-h); white-space: nowrap;
     }
     .yah-bar {
       height: var(--cell-h);
-      background: transparent;
-      border-top: 2px dashed rgba(255,255,255,0.5);
-      position: relative;
+      border-top: 1.5px dashed rgba(255,255,255,.3);
     }
-    .yah-bar.today-col {
-      border-top-color: #fff;
-      border-top-width: 2px;
-    }
+    .yah-bar.day-col { border-top-color: rgba(255,255,255,.8); }
 
-    /* ── Legend ── */
     .legend {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 1rem;
-      margin-top: 1.2rem;
-      padding-top: 1rem;
-      border-top: 1px solid rgba(255,255,255,0.07);
+      display: flex; flex-wrap: wrap; gap: .7rem;
+      margin-top: .9rem; padding-top: .9rem;
+      border-top: 1px solid var(--line);
     }
-    .legend-item {
-      display: flex;
-      align-items: center;
-      gap: 0.4rem;
-      font-size: 0.75rem;
-      opacity: 0.7;
-    }
-    .legend-dot {
-      width: 10px; height: 10px;
-      border-radius: 2px;
-    }
+    .leg { display: flex; align-items: center; gap: .35rem; font-size: .7rem; color: var(--muted); }
+    .leg-dot { width: 9px; height: 9px; border-radius: 2px; }
 
-    /* ── Sign info card ── */
-    .sign-card {
-      background: var(--mid);
-      border-radius: 16px;
-      padding: 1.5rem;
-      margin-top: 1.5rem;
-      border: 1px solid rgba(255,255,255,0.06);
+    /* ── Rules panel ── */
+    .rules-list { display: flex; flex-direction: column; gap: .55rem; }
+    .rule-item {
+      border-radius: 8px; padding: .6rem .85rem;
+      border: 1px solid var(--line); font-size: .82rem; line-height: 1.5;
     }
-    .sign-card h3 {
-      font-size: 0.7rem;
-      font-weight: 900;
-      letter-spacing: 0.12em;
-      text-transform: uppercase;
-      opacity: 0.4;
-      margin-bottom: 0.8rem;
-    }
-    .sign-text-display {
-      font-family: 'Courier New', monospace;
-      font-size: 0.95rem;
-      background: rgba(0,0,0,0.3);
-      border-radius: 8px;
-      padding: 0.8rem 1rem;
-      white-space: pre-wrap;
-      line-height: 1.6;
-      color: #E8F4FD;
-    }
-    .sign-interp {
-      margin-top: 1rem;
-      font-size: 0.9rem;
-      line-height: 1.6;
-      opacity: 0.8;
-    }
+    .rule-item.blocking   { border-color: rgba(231,76,60,.4);  background: rgba(231,76,60,.08); }
+    .rule-item.allowed    { border-color: rgba(39,174,96,.35); background: rgba(39,174,96,.07); }
+    .rule-item.exemption  { border-color: rgba(52,152,219,.35); background: rgba(52,152,219,.07); }
+    .rule-desc   { font-weight: 600; }
+    .rule-exempt { font-size: .74rem; color: #7EB8DD; margin-top: .2rem; }
 
-    /* ── Responsive ── */
-    @media (max-width: 600px) {
-      header h1 { font-size: 1.1rem; }
-      .upload-card { padding: 1.2rem; }
-      .verdict-main { letter-spacing: -0.5px; }
+    /* ── Sign card ── */
+    .sign-raw {
+      font-family: 'Courier New', monospace; font-size: .88rem;
+      background: rgba(0,0,0,.3); border-radius: 8px; padding: .75rem 1rem;
+      white-space: pre-wrap; line-height: 1.7; color: #D6EAF8;
+    }
+    .sign-interp { margin-top: .9rem; font-size: .88rem; line-height: 1.6; color: var(--muted); }
+
+    /* ── Try-again button ── */
+    #tryAgainBtn {
+      margin-top: 1.5rem; display: block; text-align: center;
+      background: transparent; border: 1px solid rgba(255,255,255,.2);
+      border-radius: 10px; padding: .7rem; font-size: .88rem;
+      color: var(--muted); cursor: pointer; transition: border-color .15s, color .15s;
+    }
+    #tryAgainBtn:hover { border-color: rgba(255,255,255,.45); color: var(--text); }
+
+    @media (max-width: 540px) {
+      .v-headline { letter-spacing: -.5px; }
+      .card { padding: 1.1rem; }
     }
   </style>
 </head>
 <body>
 
 <header>
-  <svg width="36" height="36" viewBox="0 0 36 36" fill="none">
-    <rect width="36" height="36" rx="8" fill="#27AE60"/>
-    <text x="18" y="26" font-size="20" text-anchor="middle" font-family="Helvetica Neue,Arial" font-weight="900" fill="white">P</text>
-  </svg>
+  <div class="logo">P</div>
   <div>
     <h1>Can I Park Here?</h1>
-    <p>Photograph a parking sign — get an instant visual answer</p>
+    <p>Photo or OCR text of a parking sign → instant Park / Do Not Park decision</p>
   </div>
 </header>
 
 <main>
 
-  <!-- ── Upload card ── -->
-  <div class="upload-card" id="uploadCard">
+  <!-- ── Input card ── -->
+  <div class="card" id="inputCard">
 
-    <div class="drop-zone" id="dropZone">
-      <input type="file" id="fileInput" accept="image/*" capture="environment" />
-      <div class="drop-icon">📷</div>
-      <div class="drop-label">Take or upload a photo of the parking sign</div>
-      <div class="drop-sub">JPEG · PNG · WEBP &nbsp;|&nbsp; Tap to open camera on mobile</div>
+    <div class="tab-bar">
+      <button class="tab-btn active" id="tabPhoto" onclick="switchTab('photo')">📷 Photo</button>
+      <button class="tab-btn"        id="tabText"  onclick="switchTab('text')">⌨ OCR Text</button>
     </div>
 
-    <div class="preview-wrap" id="previewWrap">
-      <img id="previewImg" src="" alt="Parking sign preview" />
+    <!-- Photo panel -->
+    <div id="photoPanel">
+      <div class="drop-zone" id="dropZone">
+        <input type="file" id="fileInput" accept="image/*" capture="environment" />
+        <div class="drop-icon">📋</div>
+        <div class="drop-label">Take or upload a photo of the parking sign</div>
+        <div class="drop-sub">JPEG · PNG · WEBP &nbsp;|&nbsp; Tap to open camera on mobile</div>
+      </div>
+      <div class="preview-wrap" id="previewWrap">
+        <img id="previewImg" src="" alt="Sign preview" />
+      </div>
     </div>
 
-    <div class="form-row">
-      <div class="field-group">
-        <label for="vehicleType">Vehicle type</label>
+    <!-- OCR text panel -->
+    <div id="ocrPanel">
+      <textarea id="ocrText" placeholder="Paste or type the parking sign text here…
+e.g.
+NO PARKING
+8AM – 6PM
+MON THRU FRI
+STREET CLEANING
+MON 8AM – 10AM"></textarea>
+    </div>
+
+    <!-- Vehicle details -->
+    <div class="form-grid" style="margin-top:1.2rem">
+      <label class="field">
+        <span class="field-label">Vehicle type</span>
         <select id="vehicleType">
           <option value="regular">Regular Car / SUV</option>
+          <option value="ev">Electric Vehicle (EV)</option>
+          <option value="motorcycle">Motorcycle</option>
           <option value="truck">Pickup Truck</option>
           <option value="commercial">Commercial Vehicle</option>
-          <option value="motorcycle">Motorcycle</option>
         </select>
-      </div>
-      <div class="field-group" id="permitTypeGroup" style="display:none">
-        <label for="permitType">Permit type / zone</label>
-        <input type="text" id="permitType" placeholder="e.g. A, B, Zone 3" />
-      </div>
+      </label>
+      <label class="field" id="permitZoneField" style="display:none">
+        <span class="field-label">Permit zone</span>
+        <input type="text" id="permitZone" placeholder="e.g. A, B, Zone 3" />
+      </label>
     </div>
 
-    <div class="checkbox-row">
-      <input type="checkbox" id="hasPermit" />
-      <label for="hasPermit">I have a residential / area permit</label>
+    <div class="toggles">
+      <label class="toggle-btn">
+        <input type="checkbox" id="hasDisabled" />
+        <span class="pip"></span>
+        Disabled / ADA permit
+      </label>
+      <label class="toggle-btn">
+        <input type="checkbox" id="hasPermit" />
+        <span class="pip"></span>
+        Residential permit
+      </label>
+      <label class="toggle-btn">
+        <input type="checkbox" id="isLoading" />
+        <span class="pip"></span>
+        Loading / unloading
+      </label>
     </div>
 
     <button id="checkBtn" disabled>Check Parking</button>
-
-    <div id="error-msg"></div>
+    <div id="errBox"></div>
   </div>
 
   <!-- ── Loader ── -->
@@ -466,222 +379,299 @@
     <p>Reading the sign with AI…</p>
   </div>
 
-  <!-- ══════════════════════════════════════
+  <!-- ══════════════════════════════════════════
        RESULTS
-  ══════════════════════════════════════ -->
+  ══════════════════════════════════════════ -->
   <div id="results">
 
     <!-- Verdict banner -->
     <div class="verdict-banner" id="verdictBanner">
-      <div class="verdict-flag" id="verdictFlag"></div>
-      <div class="verdict-main" id="verdictMain"></div>
-      <div class="verdict-sub"  id="verdictSub"></div>
-      <div class="verdict-bg-text" id="verdictBg"></div>
+      <div class="v-eyebrow"   id="vEyebrow"></div>
+      <div class="v-headline"  id="vHeadline"></div>
+      <div class="v-reason"    id="vReason"></div>
+      <div id="nextPill"></div>
+      <div class="v-bg"        id="vBg"></div>
     </div>
 
-    <!-- Weekly schedule grid -->
-    <div class="schedule-section">
-      <div class="schedule-title">Weekly parking schedule &nbsp;·&nbsp; <span id="gridLabel"></span></div>
-      <div class="park-grid" id="parkGrid"></div>
-      <div class="legend">
-        <div class="legend-item"><div class="legend-dot" style="background:var(--green)"></div> Can park</div>
-        <div class="legend-item"><div class="legend-dot" style="background:var(--red)"></div> No parking</div>
-        <div class="legend-item"><div class="legend-dot" style="background:var(--amber)"></div> Time-limited</div>
-        <div class="legend-item"><div class="legend-dot" style="background:var(--purple)"></div> Permit only</div>
+    <!-- Warnings -->
+    <div class="warnings-list" id="warningsList"></div>
+
+    <!-- Grid + Rules side by side -->
+    <div class="results-cols" style="margin-top:1.2rem">
+
+      <!-- Weekly grid -->
+      <div class="card">
+        <div class="section-label">Weekly schedule</div>
+        <div style="overflow-x:auto">
+          <div class="park-grid" id="parkGrid"></div>
+        </div>
+        <div class="legend">
+          <div class="leg"><div class="leg-dot" style="background:var(--green)"></div> Can park</div>
+          <div class="leg"><div class="leg-dot" style="background:var(--red)"></div> No parking</div>
+          <div class="leg"><div class="leg-dot" style="background:var(--amber)"></div> Time-limited</div>
+          <div class="leg"><div class="leg-dot" style="background:var(--purple)"></div> Permit only</div>
+        </div>
       </div>
+
+      <!-- Active rules -->
+      <div class="card">
+        <div class="section-label">Active rules for your vehicle</div>
+        <div class="rules-list" id="rulesList"></div>
+      </div>
+
     </div>
 
-    <!-- Sign text + interpretation -->
-    <div class="sign-card">
-      <h3>Sign text</h3>
-      <div class="sign-text-display" id="signTextDisplay"></div>
+    <!-- Sign text -->
+    <div class="card" style="margin-top:1.2rem">
+      <div class="section-label">Sign text</div>
+      <div class="sign-raw"   id="signRaw"></div>
       <div class="sign-interp" id="signInterp"></div>
     </div>
+
+    <button id="tryAgainBtn" onclick="resetUI()">← Check another sign</button>
 
   </div><!-- /results -->
 
 </main>
 
 <script>
-/* ── Helpers ── */
+/* ── State & helpers ── */
 const $ = id => document.getElementById(id);
+let selectedFile = null;
+let activeTab    = 'photo';
 
-const DAYS    = ['MON','TUE','WED','THU','FRI','SAT','SUN'];
-const DISPLAY_START = 10;  // 5:00 AM  (slot = hour*2 + (min>=30?1:0))
-const DISPLAY_END   = 47;  // 11:30 PM
+const DAYS          = ['MON','TUE','WED','THU','FRI','SAT','SUN'];
+const DISPLAY_START = 10;
+const DISPLAY_END   = 47;
 
-function slotToLabel(slot) {
-  const h   = Math.floor(slot / 2);
-  const min = slot % 2 === 0 ? '00' : '30';
-  const ampm = h < 12 ? 'AM' : 'PM';
-  const h12  = h % 12 || 12;
-  return min === '00' ? `${h12} ${ampm}` : '';  // label only on the hour
+/* ── Tab switching ── */
+function switchTab(tab) {
+  activeTab = tab;
+  $('tabPhoto').classList.toggle('active', tab === 'photo');
+  $('tabText').classList.toggle('active',  tab === 'text');
+  $('photoPanel').style.display = tab === 'photo' ? '' : 'none';
+  $('ocrPanel').style.display   = tab === 'text'  ? '' : 'none';
+  updateCheckBtn();
 }
 
-/* ── Drag-and-drop ── */
-const dropZone  = $('dropZone');
-const fileInput = $('fileInput');
-let selectedFile = null;
+function updateCheckBtn() {
+  const ok = activeTab === 'text'
+    ? $('ocrText').value.trim().length > 0
+    : selectedFile !== null;
+  $('checkBtn').disabled = !ok;
+}
 
-['dragenter','dragover'].forEach(evt => {
-  dropZone.addEventListener(evt, e => { e.preventDefault(); dropZone.classList.add('dragover'); });
+$('ocrText').addEventListener('input', updateCheckBtn);
+
+/* ── Drag / drop / file ── */
+const dropZone = $('dropZone');
+
+['dragenter','dragover'].forEach(e => {
+  dropZone.addEventListener(e, ev => { ev.preventDefault(); dropZone.classList.add('over'); });
 });
-['dragleave','drop'].forEach(evt => {
-  dropZone.addEventListener(evt, e => { e.preventDefault(); dropZone.classList.remove('dragover'); });
+['dragleave','drop'].forEach(e => {
+  dropZone.addEventListener(e, ev => { ev.preventDefault(); dropZone.classList.remove('over'); });
 });
-dropZone.addEventListener('drop', e => {
-  const f = e.dataTransfer.files[0];
-  if (f) setFile(f);
-});
-fileInput.addEventListener('change', () => {
-  if (fileInput.files[0]) setFile(fileInput.files[0]);
-});
+dropZone.addEventListener('drop', ev => { const f = ev.dataTransfer.files[0]; if (f) setFile(f); });
+$('fileInput').addEventListener('change', () => { if ($('fileInput').files[0]) setFile($('fileInput').files[0]); });
 
 function setFile(f) {
   selectedFile = f;
   const reader = new FileReader();
-  reader.onload = ev => {
-    $('previewImg').src = ev.target.result;
-    $('previewWrap').style.display = 'block';
-  };
+  reader.onload = ev => { $('previewImg').src = ev.target.result; $('previewWrap').style.display = 'block'; };
   reader.readAsDataURL(f);
-  $('checkBtn').disabled = false;
+  updateCheckBtn();
 }
 
-/* ── Permit toggle ── */
+/* ── Permit zone visibility ── */
 $('hasPermit').addEventListener('change', function() {
-  $('permitTypeGroup').style.display = this.checked ? '' : 'none';
+  $('permitZoneField').style.display = this.checked ? '' : 'none';
 });
 
 /* ── Submit ── */
 $('checkBtn').addEventListener('click', async () => {
-  if (!selectedFile) return;
-
-  $('uploadCard').style.display = 'none';
-  $('loader').style.display     = 'block';
-  $('results').style.display    = 'none';
-  $('error-msg').style.display  = 'none';
-
-  const fd = new FormData();
-  fd.append('image', selectedFile);
-  fd.append('vehicle_type', $('vehicleType').value);
-  fd.append('has_permit',   $('hasPermit').checked);
-  fd.append('permit_type',  $('permitType').value);
+  $('inputCard').style.display = 'none';
+  $('loader').style.display    = '';
+  $('results').style.display   = 'none';
+  $('errBox').style.display    = 'none';
 
   try {
-    const res  = await fetch('/api/check', { method: 'POST', body: fd });
-    if (!res.ok) throw new Error(`Server error ${res.status}`);
-    const data = await res.json();
+    let data;
+    if (activeTab === 'photo') {
+      const fd = new FormData();
+      fd.append('image',        selectedFile);
+      fd.append('vehicle_type', $('vehicleType').value);
+      fd.append('has_disabled', $('hasDisabled').checked);
+      fd.append('has_permit',   $('hasPermit').checked);
+      fd.append('permit_zone',  $('permitZone').value);
+      fd.append('is_loading',   $('isLoading').checked);
+      const res = await fetch('/api/check', { method: 'POST', body: fd });
+      if (!res.ok) throw new Error((await res.json()).detail || `Server error ${res.status}`);
+      data = await res.json();
+    } else {
+      const body = {
+        sign_text:    $('ocrText').value,
+        vehicle_type: $('vehicleType').value,
+        has_disabled: $('hasDisabled').checked,
+        has_permit:   $('hasPermit').checked,
+        permit_zone:  $('permitZone').value,
+        is_loading:   $('isLoading').checked,
+      };
+      const res = await fetch('/api/check-text', {
+        method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error((await res.json()).detail || `Server error ${res.status}`);
+      data = await res.json();
+    }
     renderResults(data);
   } catch (err) {
     $('loader').style.display    = 'none';
-    $('uploadCard').style.display = '';
-    const em = $('error-msg');
-    em.textContent = `⚠ ${err.message || 'Something went wrong. Please try again.'}`;
-    em.style.display = 'block';
+    $('inputCard').style.display = '';
+    $('errBox').style.display    = '';
+    $('errBox').textContent      = `⚠ ${err.message || 'Something went wrong. Please try again.'}`;
   }
 });
 
+/* ── Reset ── */
+function resetUI() {
+  $('results').style.display   = 'none';
+  $('inputCard').style.display = '';
+  $('checkBtn').disabled       = true;
+  selectedFile                 = null;
+  $('previewWrap').style.display = 'none';
+  $('previewImg').src            = '';
+  $('fileInput').value           = '';
+  $('ocrText').value             = '';
+}
+
 /* ══════════════════════════════════════════
-   RENDER RESULTS
+   RENDER
 ══════════════════════════════════════════ */
-function renderResults({ grid, verdict, sign_text, interpretation }) {
+
+function renderResults({ verdict, grid, sign_text, interpretation }) {
   $('loader').style.display  = 'none';
   $('results').style.display = '';
-
   renderVerdict(verdict);
+  renderWarnings(verdict.warnings || []);
   renderGrid(grid, verdict);
-
-  $('signTextDisplay').textContent = sign_text || '(could not extract text)';
-  $('signInterp').textContent      = interpretation || '';
+  renderRules(verdict.triggered_rules || [], verdict);
+  $('signRaw').textContent    = sign_text || '(could not extract text)';
+  $('signInterp').textContent = interpretation || '';
 }
 
 /* ── Verdict banner ── */
 function renderVerdict(v) {
   const banner = $('verdictBanner');
-  const status = v.status;
-  let cls, flag, main, sub, bg;
 
-  if (status === 'CAN_PARK') {
-    cls = 'can';
-    flag = 'Right now · ' + v.current_day_full + ' · ' + v.current_time;
-    main = 'YES, YOU CAN\nPARK HERE.';
-    sub  = 'No restrictions apply at this moment.';
-    bg   = 'YES';
-  } else if (status === 'CANNOT_PARK') {
-    cls = 'cant';
-    flag = 'Right now · ' + v.current_day_full + ' · ' + v.current_time;
-    main = 'NO, YOU CANNOT\nPARK HERE.';
-    sub  = 'A parking restriction is in effect.';
-    bg   = 'NO';
-  } else if (status === 'TIMED_PARK') {
-    cls = 'timed';
-    flag = 'Right now · ' + v.current_day_full + ' · ' + v.current_time;
-    main = 'YES, BUT\nTIME-LIMITED.';
-    sub  = 'Check the sign for maximum stay duration.';
-    bg   = 'YES';
+  let cls, bg;
+  if (v.status === 'CAN_PARK') {
+    cls = 'v-can'; bg = 'YES';
+  } else if (v.status === 'CANNOT_PARK') {
+    cls = 'v-cant'; bg = 'NO';
+  } else if (v.status === 'TIMED_PARK') {
+    cls = 'v-timed'; bg = 'YES';
   } else {
-    cls = 'permit';
-    flag = 'Right now · ' + v.current_day_full + ' · ' + v.current_time;
-    main = 'PERMIT\nREQUIRED.';
-    sub  = 'This spot requires a residential or area permit.';
-    bg   = 'P';
+    cls = 'v-permit'; bg = 'P';
   }
 
   banner.className = 'verdict-banner ' + cls;
-  $('verdictFlag').textContent = flag;
-  $('verdictMain').style.whiteSpace = 'pre-line';
-  $('verdictMain').textContent = main;
-  $('verdictSub').textContent  = sub;
-  $('verdictBg').textContent   = bg;
+  $('vEyebrow').textContent  = `${v.current_day_full} · ${v.current_time}`;
+  $('vHeadline').textContent = v.headline || (v.can_park ? 'YES, YOU CAN PARK HERE.' : 'NO, YOU CANNOT PARK HERE.');
+  $('vReason').textContent   = v.reason   || '';
+  $('vBg').textContent       = bg;
+
+  const pill = $('nextPill');
+  if (v.next_change_at) {
+    const label = v.can_park
+      ? `Restriction starts at ${v.next_change_at}`
+      : `Opens at ${v.next_change_at}`;
+    pill.innerHTML = `<div class="next-pill"><span class="next-dot"></span>${label}</div>`;
+  } else {
+    pill.innerHTML = '';
+  }
+}
+
+/* ── Warnings ── */
+function renderWarnings(warnings) {
+  const el = $('warningsList');
+  el.innerHTML = warnings.map(w =>
+    `<div class="warn-item"><span class="warn-icon">⚠</span><span>${w}</span></div>`
+  ).join('');
+}
+
+/* ── Rules list ── */
+function renderRules(rules, verdict) {
+  const el = $('rulesList');
+  if (!rules.length) {
+    el.innerHTML = '<div style="color:var(--muted);font-size:.85rem">No rules fired for the current moment.</div>';
+    return;
+  }
+  el.innerHTML = rules.map(r => {
+    const cls = r.blocking ? 'blocking' : r.exemption_applied ? 'exemption' : 'allowed';
+    const icon = r.blocking ? '🚫' : r.exemption_applied ? '✓' : '✓';
+    const exempt = r.exemption_applied
+      ? `<div class="rule-exempt">↳ ${r.exemption_applied}</div>`
+      : '';
+    return `<div class="rule-item ${cls}">
+      <div class="rule-desc">${icon} ${r.description}</div>
+      ${exempt}
+    </div>`;
+  }).join('');
+
+  // Duration limit badge
+  if (verdict.max_duration_minutes) {
+    const h = Math.floor(verdict.max_duration_minutes / 60);
+    const m = verdict.max_duration_minutes % 60;
+    const dur = h && m ? `${h}h ${m}m` : h ? `${h}h` : `${m}m`;
+    el.innerHTML += `<div class="rule-item allowed" style="margin-top:.3rem">
+      <div class="rule-desc">⏱ Maximum stay: ${dur}</div>
+    </div>`;
+  }
 }
 
 /* ── Grid ── */
-function renderGrid(grid, verdict) {
-  const g       = $('parkGrid');
-  const nowSlot = verdict.current_slot;
-  const nowDay  = verdict.day_index;   // 0=MON … 6=SUN
-  const clamp   = s => Math.max(DISPLAY_START, Math.min(DISPLAY_END, s));
-  const nowSlotClamped = clamp(nowSlot);
-  const isNowVisible = nowSlot >= DISPLAY_START && nowSlot <= DISPLAY_END;
+function slotLabel(slot) {
+  const h = Math.floor(slot / 2), m = slot % 2 === 0 ? '00' : '30';
+  if (m !== '00') return '';
+  const ampm = h < 12 ? 'AM' : 'PM', h12 = h % 12 || 12;
+  return `${h12} ${ampm}`;
+}
 
-  $('gridLabel').textContent = `${verdict.current_day_full} · ${verdict.current_time}`;
+function renderGrid(grid, verdict) {
+  const nowSlot = verdict.current_slot;
+  const nowDay  = verdict.day_index;
+  const visible = nowSlot >= DISPLAY_START && nowSlot <= DISPLAY_END;
+  const nowClamped = Math.max(DISPLAY_START, Math.min(DISPLAY_END, nowSlot));
 
   let html = '';
 
-  /* Header row */
-  html += `<div class="gh-spacer gh"></div>`;
+  /* Header */
+  html += '<div class="gh" style="grid-column:1"></div>';
   DAYS.forEach((d, i) => {
-    const today = i === nowDay ? ' today' : '';
-    html += `<div class="gh${today}">${d}</div>`;
+    html += `<div class="gh${i === nowDay ? ' today' : ''}">${d}</div>`;
   });
 
   /* Time rows */
   for (let slot = DISPLAY_START; slot <= DISPLAY_END; slot++) {
-    const label      = slotToLabel(slot);
-    const isNowRow   = slot === nowSlotClamped && isNowVisible;
+    const isNowRow = visible && slot === nowClamped;
+    html += `<div class="tl${isNowRow ? ' now-lbl' : ''}">${slotLabel(slot)}</div>`;
 
-    /* Time label column */
-    html += `<div class="tl${isNowRow ? ' now-label' : ''}">${label}</div>`;
-
-    /* Day cells */
     DAYS.forEach((day, di) => {
-      const slotObj    = (grid[day] || []).find(s => s.slot === slot);
-      const status     = slotObj ? slotObj.status : 'CAN_PARK';
-      const isNowCell  = isNowRow && di === nowDay;
-      html += `<div class="gc ${status}${isNowCell ? ' now-cell' : ''}"></div>`;
+      const cellData = (grid[day] || []).find(s => s.slot === slot);
+      const status   = cellData ? cellData.status : 'CAN_PARK';
+      const isCell   = isNowRow && di === nowDay;
+      html += `<div class="gc ${status}${isCell ? ' now-cell' : ''}"></div>`;
     });
 
-    /* "YOU ARE HERE" dashed line row — inserted AFTER the now-row */
     if (isNowRow) {
-      html += `<div class="yah-label">← NOW</div>`;
+      html += '<div class="yah-lbl">← NOW</div>';
       DAYS.forEach((_, di) => {
-        html += `<div class="yah-bar${di === nowDay ? ' today-col' : ''}"></div>`;
+        html += `<div class="yah-bar${di === nowDay ? ' day-col' : ''}"></div>`;
       });
     }
   }
 
-  g.innerHTML = html;
+  $('parkGrid').innerHTML = html;
 }
 </script>
 
