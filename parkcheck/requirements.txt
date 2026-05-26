@@ -1,0 +1,14 @@
+# Web framework
+fastapi>=0.115.0
+uvicorn[standard]>=0.34.0
+python-multipart>=0.0.9
+pydantic>=2.10.0
+python-dotenv>=1.0.0
+
+# AI providers — install all three so users can switch without reinstalling
+anthropic>=0.49.0
+openai>=1.55.0
+google-generativeai>=0.8.0
+
+# Image support for Google Gemini
+pillow>=11.0.0

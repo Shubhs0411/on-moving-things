@@ -1,0 +1,851 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Can I Park Here?</title>
+  <meta name="description" content="Photograph a parking sign, get an instant Park or Do Not Park answer powered by Claude, GPT-4o, or Gemini." />
+  <style>
+    /* ── Design tokens ─────────────────────────────── */
+    :root {
+      --bg:      #0D0D1C;
+      --s1:      #141428;
+      --s2:      #1C1C38;
+      --s3:      #242445;
+      --border:  rgba(255,255,255,0.07);
+      --border2: rgba(255,255,255,0.14);
+      --text:    #EEEEF5;
+      --muted:   rgba(238,238,245,0.4);
+      --green:   #16A34A;
+      --red:     #DC2626;
+      --amber:   #D97706;
+      --purple:  #7C3AED;
+      --anth:    #6D28D9;
+      --oai:     #059669;
+      --goog:    #2563EB;
+      --r:       14px;
+      --cell:    13px;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, 'Helvetica Neue', Arial, sans-serif;
+           background: var(--bg); color: var(--text); min-height: 100vh; }
+    a { color: inherit; }
+
+    /* ── Header ────────────────────────────────────── */
+    header {
+      background: var(--s1); border-bottom: 1px solid var(--border);
+      padding: .9rem 1.5rem; display: flex; align-items: center; gap: .8rem;
+    }
+    .logo { width: 34px; height: 34px; border-radius: 8px; background: var(--green);
+            display: grid; place-items: center; font-size: 1.1rem; font-weight: 900;
+            color: #fff; flex-shrink: 0; letter-spacing: -1px; }
+    header h1 { font-size: 1.15rem; font-weight: 800; letter-spacing: -.3px; }
+    header p  { font-size: .72rem; color: var(--muted); margin-top: 1px; }
+    .header-right { margin-left: auto; display: flex; gap: .5rem; }
+    .hbtn { font-size: .72rem; padding: .35rem .7rem; border-radius: 6px;
+            border: 1px solid var(--border2); background: transparent;
+            color: var(--muted); cursor: pointer; transition: color .15s;
+            text-decoration: none; }
+    .hbtn:hover { color: var(--text); }
+
+    /* ── Layout ────────────────────────────────────── */
+    main { max-width: 840px; margin: 0 auto; padding: 1.5rem 1rem 5rem; }
+
+    .card { background: var(--s2); border-radius: var(--r); border: 1px solid var(--border); padding: 1.4rem; }
+    .card + .card { margin-top: .9rem; }
+    .section-label {
+      font-size: .64rem; font-weight: 800; letter-spacing: .12em;
+      text-transform: uppercase; color: var(--muted); margin-bottom: .9rem;
+    }
+
+    /* ── Provider cards ────────────────────────────── */
+    .provider-row { display: grid; grid-template-columns: repeat(3,1fr); gap: .7rem; }
+    .provider-card {
+      border-radius: 10px; border: 1.5px solid var(--border);
+      padding: .85rem .9rem; cursor: pointer; transition: border-color .15s, background .15s;
+      background: var(--s3); user-select: none;
+    }
+    .provider-card:hover  { border-color: var(--border2); }
+    .provider-card.active { border-color: var(--provider-color, var(--green)); background: rgba(255,255,255,.03); }
+    .provider-card.active .pname { color: var(--provider-color, var(--green)); }
+    .provider-card[data-p="anthropic"] { --provider-color: var(--anth); }
+    .provider-card[data-p="openai"]    { --provider-color: var(--oai);  }
+    .provider-card[data-p="google"]    { --provider-color: var(--goog); }
+
+    .pbadge { font-size: .6rem; font-weight: 800; letter-spacing: .08em;
+              text-transform: uppercase; color: var(--muted); margin-bottom: .25rem; }
+    .pname  { font-size: .88rem; font-weight: 800; margin-bottom: .15rem; }
+    .pmodel { font-size: .7rem; color: var(--muted); }
+
+    /* ── API key field ─────────────────────────────── */
+    .key-row { display: flex; gap: .6rem; margin-top: .9rem; align-items: flex-end; }
+    .key-wrap { flex: 1; position: relative; }
+    .key-label { font-size: .68rem; font-weight: 800; letter-spacing: .1em;
+                 text-transform: uppercase; color: var(--muted); margin-bottom: .35rem; display: block; }
+    .key-input {
+      width: 100%; background: var(--s1); border: 1px solid var(--border2);
+      border-radius: 8px; color: var(--text); padding: .6rem 2.6rem .6rem .8rem;
+      font-size: .88rem; font-family: 'Courier New', monospace;
+    }
+    .key-input:focus { outline: none; border-color: rgba(255,255,255,.3); }
+    .key-toggle {
+      position: absolute; right: .6rem; top: 50%; transform: translateY(-50%);
+      background: none; border: none; color: var(--muted); cursor: pointer; padding: .2rem;
+    }
+    .key-toggle:hover { color: var(--text); }
+    .key-save { display: flex; align-items: center; gap: .4rem;
+                font-size: .72rem; color: var(--muted); margin-top: .5rem; cursor: pointer; }
+    .key-save input { accent-color: var(--green); cursor: pointer; }
+    .key-connected {
+      display: none; align-items: center; gap: .5rem; padding: .5rem .8rem;
+      border-radius: 8px; font-size: .8rem; font-weight: 700;
+      background: rgba(22,163,74,.12); border: 1px solid rgba(22,163,74,.3);
+      color: var(--green);
+    }
+    .key-connected.show { display: flex; }
+    .key-connected .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); }
+    .key-change { margin-left: auto; font-size: .7rem; font-weight: 400;
+                  color: var(--muted); cursor: pointer; border: none; background: none; }
+    .key-change:hover { color: var(--text); }
+
+    /* ── Tabs ──────────────────────────────────────── */
+    .tab-bar { display: flex; gap: .3rem; margin-bottom: 1rem; }
+    .tab { padding: .4rem .9rem; border-radius: 7px; border: 1px solid var(--border);
+           background: transparent; color: var(--muted); font-size: .8rem; font-weight: 700;
+           cursor: pointer; transition: background .12s, color .12s; }
+    .tab.active { background: rgba(255,255,255,.08); color: var(--text); }
+
+    /* ── Drop zone ─────────────────────────────────── */
+    .drop {
+      border: 2px dashed rgba(255,255,255,.17); border-radius: 10px;
+      padding: 2.5rem 1.5rem; text-align: center; cursor: pointer;
+      transition: border-color .2s, background .2s; position: relative; overflow: hidden;
+    }
+    .drop:hover, .drop.over { border-color: rgba(255,255,255,.4); background: rgba(255,255,255,.02); }
+    .drop input { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; }
+    .drop-icon  { font-size: 2.4rem; }
+    .drop-head  { font-size: .95rem; font-weight: 700; margin-top: .45rem; }
+    .drop-sub   { font-size: .72rem; color: var(--muted); margin-top: .25rem; }
+
+    .preview { display: none; margin-top: .9rem; border-radius: 9px;
+               overflow: hidden; max-height: 220px; text-align: center; background: #000; }
+    .preview img { max-height: 220px; max-width: 100%; object-fit: contain; }
+
+    textarea.ocr {
+      display: none; width: 100%; min-height: 120px;
+      background: var(--s1); border: 1px solid var(--border2); border-radius: 9px;
+      color: var(--text); padding: .7rem .9rem; font-size: .85rem;
+      font-family: 'Courier New', monospace; resize: vertical;
+    }
+    textarea.ocr:focus { outline: none; border-color: rgba(255,255,255,.3); }
+
+    /* ── Vehicle pills ─────────────────────────────── */
+    .vtype-row { display: flex; flex-wrap: wrap; gap: .5rem; }
+    .vpill {
+      padding: .38rem .85rem; border-radius: 20px; font-size: .8rem; font-weight: 700;
+      border: 1px solid var(--border); background: var(--s3); cursor: pointer;
+      transition: border-color .12s, background .12s; white-space: nowrap;
+    }
+    .vpill.active { border-color: var(--green); background: rgba(22,163,74,.12); color: #4ADE80; }
+
+    /* ── Toggles ───────────────────────────────────── */
+    .toggles { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .8rem; }
+    .tgl {
+      display: flex; align-items: center; gap: .45rem;
+      background: var(--s3); border: 1px solid var(--border); border-radius: 8px;
+      padding: .45rem .85rem; font-size: .8rem; cursor: pointer; user-select: none;
+      transition: border-color .12s, background .12s;
+    }
+    .tgl input { display: none; }
+    .tgl .pip { width: 14px; height: 14px; border-radius: 50%;
+                border: 2px solid rgba(255,255,255,.25); flex-shrink: 0;
+                transition: background .12s, border-color .12s; }
+    .tgl input:checked ~ .pip { background: var(--green); border-color: var(--green); }
+    .tgl:has(input:checked) { border-color: var(--green); background: rgba(22,163,74,.08); }
+
+    .zone-row { display: none; margin-top: .5rem; }
+    .zone-row input {
+      background: var(--s1); border: 1px solid var(--border2); border-radius: 7px;
+      color: var(--text); padding: .45rem .7rem; font-size: .82rem; width: 180px;
+    }
+
+    /* ── Submit ────────────────────────────────────── */
+    #checkBtn {
+      margin-top: 1.2rem; width: 100%; padding: .9rem; background: var(--green); color: #fff;
+      font-size: .95rem; font-weight: 900; letter-spacing: .05em; text-transform: uppercase;
+      border: none; border-radius: 10px; cursor: pointer;
+      transition: opacity .15s, transform .1s;
+    }
+    #checkBtn:hover  { opacity: .88; }
+    #checkBtn:active { transform: scale(.985); }
+    #checkBtn:disabled { opacity: .3; cursor: not-allowed; }
+
+    #errBox {
+      display: none; background: rgba(220,38,38,.1); border: 1px solid var(--red);
+      border-radius: 9px; padding: .8rem 1rem; color: #FCA5A5;
+      font-size: .82rem; margin-top: .8rem; line-height: 1.5;
+    }
+
+    /* ── Loader ────────────────────────────────────── */
+    #loader { display: none; text-align: center; padding: 3rem 1rem; }
+    .spin {
+      width: 42px; height: 42px; border: 3px solid rgba(255,255,255,.1);
+      border-top-color: var(--green); border-radius: 50%;
+      animation: spin .75s linear infinite; margin: 0 auto .75rem;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    #loader p { color: var(--muted); font-size: .85rem; }
+
+    /* ══════════════════════════════════════════════════
+       RESULTS
+    ══════════════════════════════════════════════════ */
+    #results { display: none; margin-top: 1.4rem; }
+
+    /* ── Verdict banner ────────────────────────────── */
+    .verdict {
+      border-radius: var(--r); padding: 1.7rem 2rem;
+      position: relative; overflow: hidden; margin-bottom: 1rem;
+    }
+    .v-can  { background: var(--green); }
+    .v-no   { background: var(--red);   }
+    .v-time { background: var(--amber); color: #1a1a1a; }
+    .v-perm { background: var(--purple);}
+
+    .v-eye  { font-size: .68rem; font-weight: 800; letter-spacing: .12em;
+              text-transform: uppercase; opacity: .8; }
+    .v-head { font-size: clamp(1.8rem,5vw,3rem); font-weight: 900;
+              letter-spacing: -1px; line-height: 1.05; margin: .3rem 0; white-space: pre-line; }
+    .v-sub  { font-size: .92rem; opacity: .88; line-height: 1.5; }
+    .v-bg   { position: absolute; right: -10px; top: 50%; transform: translateY(-50%);
+              font-size: clamp(4rem,14vw,8.5rem); font-weight: 900;
+              opacity: .07; pointer-events: none; user-select: none; line-height: 1; }
+
+    .v-pill { display: inline-flex; align-items: center; gap: .4rem;
+              background: rgba(0,0,0,.22); border-radius: 20px;
+              padding: .28rem .85rem; font-size: .74rem; font-weight: 700; margin-top: .7rem; }
+    .v-dot  { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+
+    /* ── Warnings ──────────────────────────────────── */
+    .warn-list { display: flex; flex-direction: column; gap: .45rem; margin-bottom: 1rem; }
+    .warn-item { display: flex; align-items: flex-start; gap: .55rem;
+                 background: var(--s2); border: 1px solid var(--border);
+                 border-radius: 8px; padding: .6rem .85rem; font-size: .8rem; line-height: 1.55; }
+    .warn-ico { flex-shrink: 0; }
+
+    /* ── Two-col ───────────────────────────────────── */
+    .cols { display: grid; gap: .9rem; }
+    @media (min-width: 620px) { .cols { grid-template-columns: 1fr 1fr; } }
+
+    /* ── Grid ──────────────────────────────────────── */
+    .park-grid {
+      display: grid; grid-template-columns: 44px repeat(7,1fr);
+      gap: 2px; min-width: 320px;
+    }
+    .gh { font-size: .6rem; font-weight: 800; letter-spacing: .07em;
+          text-align: center; padding: 2px 0 6px; color: var(--muted); }
+    .gh.today { color: var(--text); position: relative; }
+    .gh.today::after { content:''; display:block; margin: 2px auto 0;
+                       width: 4px; height: 4px; border-radius: 50%; background: currentColor; }
+    .tl { font-size: .56rem; color: var(--muted); text-align: right;
+          padding-right: 5px; line-height: var(--cell); height: var(--cell); }
+    .tl.now { color: var(--text); font-weight: 800; }
+    .gc { height: var(--cell); border-radius: 1px; }
+    .gc.CAN_PARK        { background: var(--green);  }
+    .gc.CANNOT_PARK     { background: var(--red);    }
+    .gc.TIMED_PARK      { background: var(--amber);  }
+    .gc.PERMIT_REQUIRED { background: var(--purple); }
+    .gc.now-cell { outline: 2px solid #fff; outline-offset: -1px; z-index: 2; position: relative; }
+    .yah-lbl { font-size: .54rem; font-weight: 900; color: var(--text);
+               text-align: right; padding-right: 5px;
+               height: var(--cell); line-height: var(--cell); white-space: nowrap; }
+    .yah-bar { height: var(--cell); border-top: 1.5px dashed rgba(255,255,255,.25); }
+    .yah-bar.day { border-top-color: rgba(255,255,255,.75); }
+
+    .legend { display: flex; flex-wrap: wrap; gap: .6rem; margin-top: .8rem;
+              padding-top: .8rem; border-top: 1px solid var(--border); }
+    .leg  { display: flex; align-items: center; gap: .3rem; font-size: .68rem; color: var(--muted); }
+    .ldot { width: 8px; height: 8px; border-radius: 2px; }
+
+    /* ── Rules ─────────────────────────────────────── */
+    .rule-list { display: flex; flex-direction: column; gap: .5rem; }
+    .rule {
+      border-radius: 8px; padding: .55rem .8rem; font-size: .8rem; line-height: 1.5;
+      border: 1px solid var(--border);
+    }
+    .rule.block  { border-color: rgba(220,38,38,.35);  background: rgba(220,38,38,.07); }
+    .rule.pass   { border-color: rgba(22,163,74,.3);   background: rgba(22,163,74,.06); }
+    .rule.exempt { border-color: rgba(59,130,246,.3);  background: rgba(59,130,246,.06); }
+    .rule-title  { font-weight: 700; }
+    .rule-note   { font-size: .72rem; color: #93C5FD; margin-top: .15rem; }
+
+    /* ── Sign card ─────────────────────────────────── */
+    .sign-text { font-family: 'Courier New', monospace; font-size: .85rem;
+                 background: rgba(0,0,0,.35); border-radius: 8px; padding: .7rem .9rem;
+                 white-space: pre-wrap; line-height: 1.75; color: #DBEAFE; }
+    .sign-interp { margin-top: .85rem; font-size: .82rem; line-height: 1.6; color: var(--muted); }
+
+    /* ── Try-again ─────────────────────────────────── */
+    .again { display: block; width: 100%; text-align: center; padding: .7rem;
+             background: transparent; border: 1px solid var(--border2); border-radius: 10px;
+             color: var(--muted); font-size: .85rem; cursor: pointer; margin-top: 1.2rem;
+             transition: color .15s, border-color .15s; }
+    .again:hover { color: var(--text); border-color: rgba(255,255,255,.3); }
+
+    /* ── How it works ──────────────────────────────── */
+    .how { display: flex; gap: 1.2rem; margin-top: 1.5rem; flex-wrap: wrap; }
+    .how-step { flex: 1; min-width: 140px; text-align: center; padding: 1rem .5rem; }
+    .how-ico   { font-size: 1.8rem; margin-bottom: .4rem; }
+    .how-num   { font-size: .6rem; font-weight: 800; letter-spacing: .1em;
+                 text-transform: uppercase; color: var(--muted); margin-bottom: .3rem; }
+    .how-title { font-size: .85rem; font-weight: 700; margin-bottom: .2rem; }
+    .how-desc  { font-size: .72rem; color: var(--muted); line-height: 1.5; }
+
+    @media (max-width: 500px) {
+      .provider-row { grid-template-columns: 1fr; }
+      .v-head       { letter-spacing: -.5px; }
+      .card         { padding: 1rem; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">P</div>
+  <div>
+    <h1>Can I Park Here?</h1>
+    <p>AI-powered parking sign reader</p>
+  </div>
+  <div class="header-right">
+    <a class="hbtn" href="/api/docs" target="_blank">API docs</a>
+  </div>
+</header>
+
+<main>
+
+  <!-- ── Step 1: Provider + API Key ── -->
+  <div class="card" id="setupCard">
+    <div class="section-label">Step 1 — Choose your AI provider</div>
+
+    <div class="provider-row">
+      <div class="provider-card" data-p="anthropic" onclick="selectProvider(this)">
+        <div class="pbadge">Anthropic</div>
+        <div class="pname">Claude Sonnet</div>
+        <div class="pmodel">claude-sonnet-4-6</div>
+      </div>
+      <div class="provider-card" data-p="openai" onclick="selectProvider(this)">
+        <div class="pbadge">OpenAI</div>
+        <div class="pname">GPT-4o</div>
+        <div class="pmodel">gpt-4o</div>
+      </div>
+      <div class="provider-card" data-p="google" onclick="selectProvider(this)">
+        <div class="pbadge">Google</div>
+        <div class="pname">Gemini Flash</div>
+        <div class="pmodel">gemini-1.5-flash</div>
+      </div>
+    </div>
+
+    <!-- Connected state -->
+    <div class="key-connected" id="keyConnected">
+      <span class="dot"></span>
+      <span id="connectedLabel">Connected</span>
+      <button class="key-change" onclick="showKeyInput()">Change</button>
+    </div>
+
+    <!-- Key input -->
+    <div id="keyInputArea">
+      <div class="key-row">
+        <div class="key-wrap">
+          <label class="key-label" for="apiKey" id="keyLabel">API Key</label>
+          <input type="password" id="apiKey" class="key-input" placeholder="Paste your API key here" autocomplete="off" />
+          <button class="key-toggle" onclick="toggleKeyVis()" title="Show / hide key">
+            <svg id="eyeIcon" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+              <circle cx="12" cy="12" r="3"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+      <label class="key-save">
+        <input type="checkbox" id="rememberKey" />
+        Remember on this device
+        <span style="margin-left:auto;font-size:.68rem;color:var(--muted)">Saved to localStorage only</span>
+      </label>
+    </div>
+  </div>
+
+  <!-- ── Step 2: Sign input + vehicle ── -->
+  <div class="card" id="inputCard">
+    <div class="section-label">Step 2 — Photograph or paste the sign</div>
+
+    <div class="tab-bar">
+      <button class="tab active" id="tabPhoto" onclick="switchTab('photo')">📷 Take / upload photo</button>
+      <button class="tab"        id="tabText"  onclick="switchTab('text')">⌨ Paste OCR text</button>
+    </div>
+
+    <div id="photoPanel">
+      <div class="drop" id="dropZone">
+        <input type="file" id="fileInput" accept="image/*" capture="environment" />
+        <div class="drop-icon">🪧</div>
+        <div class="drop-head">Drop sign photo here, or tap to capture</div>
+        <div class="drop-sub">JPEG · PNG · WEBP &nbsp;|&nbsp; Uses your camera on mobile</div>
+      </div>
+      <div class="preview" id="previewWrap">
+        <img id="previewImg" src="" alt="Sign preview" />
+      </div>
+    </div>
+
+    <textarea class="ocr" id="ocrText" placeholder="Paste parking sign text here…
+
+Example:
+NO PARKING
+8AM – 6PM
+MON THRU FRI
+
+STREET CLEANING
+MON 8AM – 10AM"></textarea>
+
+    <!-- Vehicle details -->
+    <div style="margin-top:1.2rem">
+      <div class="section-label" style="margin-bottom:.6rem">Your vehicle</div>
+      <div class="vtype-row" id="vtypeRow">
+        <div class="vpill active" data-v="regular"    onclick="selectVehicle(this)">🚗 Car / SUV</div>
+        <div class="vpill"        data-v="ev"         onclick="selectVehicle(this)">⚡ Electric (EV)</div>
+        <div class="vpill"        data-v="motorcycle" onclick="selectVehicle(this)">🏍 Motorcycle</div>
+        <div class="vpill"        data-v="truck"      onclick="selectVehicle(this)">🚛 Pickup Truck</div>
+        <div class="vpill"        data-v="commercial" onclick="selectVehicle(this)">🚐 Commercial</div>
+      </div>
+      <div class="toggles">
+        <label class="tgl">
+          <input type="checkbox" id="hasDisabled" />
+          <span class="pip"></span>
+          ♿ Disabled / ADA permit
+        </label>
+        <label class="tgl" id="permitToggle">
+          <input type="checkbox" id="hasPermit" onchange="togglePermitZone()" />
+          <span class="pip"></span>
+          🏘 Residential permit
+        </label>
+        <label class="tgl">
+          <input type="checkbox" id="isLoading" />
+          <span class="pip"></span>
+          📦 Loading / unloading
+        </label>
+      </div>
+      <div class="zone-row" id="zoneRow">
+        <input type="text" id="permitZone" placeholder="Permit zone (e.g. A, B, Zone 3)" />
+      </div>
+    </div>
+
+    <button id="checkBtn" disabled>Check This Sign →</button>
+    <div id="errBox"></div>
+  </div>
+
+  <!-- How it works (shown before first check) -->
+  <div class="how" id="howItWorks">
+    <div class="how-step">
+      <div class="how-ico">📷</div>
+      <div class="how-num">Step 1</div>
+      <div class="how-title">Photograph the sign</div>
+      <div class="how-desc">Take a photo or upload one from your gallery. Works on any parking sign.</div>
+    </div>
+    <div class="how-step">
+      <div class="how-ico">🤖</div>
+      <div class="how-num">Step 2</div>
+      <div class="how-title">AI reads the rules</div>
+      <div class="how-desc">Your chosen AI model extracts every restriction, day, and time from the sign text.</div>
+    </div>
+    <div class="how-step">
+      <div class="how-ico">✅</div>
+      <div class="how-num">Step 3</div>
+      <div class="how-title">Get your answer</div>
+      <div class="how-desc">The rule engine checks the current moment against your vehicle type and gives a clear verdict.</div>
+    </div>
+  </div>
+
+  <!-- ── Loader ── -->
+  <div id="loader">
+    <div class="spin"></div>
+    <p id="loaderMsg">Reading the sign with AI…</p>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════
+       RESULTS
+  ══════════════════════════════════════════════════ -->
+  <div id="results">
+
+    <!-- Verdict -->
+    <div class="verdict" id="verdictBanner">
+      <div class="v-eye"  id="vEye"></div>
+      <div class="v-head" id="vHead"></div>
+      <div class="v-sub"  id="vSub"></div>
+      <div id="vPill"></div>
+      <div class="v-bg"   id="vBg"></div>
+    </div>
+
+    <!-- Warnings -->
+    <div class="warn-list" id="warnList"></div>
+
+    <!-- Grid + Rules -->
+    <div class="cols">
+      <div class="card">
+        <div class="section-label">Weekly schedule</div>
+        <div style="overflow-x:auto">
+          <div class="park-grid" id="parkGrid"></div>
+        </div>
+        <div class="legend">
+          <div class="leg"><div class="ldot" style="background:var(--green)"></div> Can park</div>
+          <div class="leg"><div class="ldot" style="background:var(--red)"></div> No parking</div>
+          <div class="leg"><div class="ldot" style="background:var(--amber)"></div> Time-limited</div>
+          <div class="leg"><div class="ldot" style="background:var(--purple)"></div> Permit only</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="section-label">Active rules for your vehicle</div>
+        <div class="rule-list" id="ruleList"></div>
+      </div>
+    </div>
+
+    <!-- Sign text -->
+    <div class="card" style="margin-top:.9rem">
+      <div class="section-label">Sign text extracted by AI</div>
+      <div class="sign-text"  id="signText"></div>
+      <div class="sign-interp" id="signInterp"></div>
+    </div>
+
+    <button class="again" onclick="resetUI()">← Check another sign</button>
+  </div>
+
+</main>
+
+<script>
+/* ── State ──────────────────────────────────────── */
+const $ = id => document.getElementById(id);
+let activeProvider = '';
+let activeTab      = 'photo';
+let selectedFile   = null;
+let vehicleType    = 'regular';
+
+/* ── Persist key ────────────────────────────────── */
+const PROV_KEY    = 'parkcheck_provider';
+const APIKEY_KEY  = 'parkcheck_apikey';
+
+function loadSaved() {
+  const savedP = localStorage.getItem(PROV_KEY);
+  const savedK = localStorage.getItem(APIKEY_KEY);
+  if (savedP) {
+    const card = document.querySelector(`.provider-card[data-p="${savedP}"]`);
+    if (card) { selectProvider(card, true); }
+  }
+  if (savedK) {
+    $('apiKey').value   = savedK;
+    $('rememberKey').checked = true;
+    if (savedP) showConnected();
+  }
+}
+
+function showConnected() {
+  const labels = { anthropic: 'Claude Sonnet', openai: 'GPT-4o', google: 'Gemini Flash' };
+  $('connectedLabel').textContent = `Connected · ${labels[activeProvider] || activeProvider}`;
+  $('keyConnected').classList.add('show');
+  $('keyInputArea').style.display = 'none';
+}
+
+function showKeyInput() {
+  $('keyConnected').classList.remove('show');
+  $('keyInputArea').style.display = '';
+}
+
+/* ── Provider selection ─────────────────────────── */
+function selectProvider(card, silent = false) {
+  document.querySelectorAll('.provider-card').forEach(c => c.classList.remove('active'));
+  card.classList.add('active');
+  activeProvider = card.dataset.p;
+
+  const placeholders = {
+    anthropic: 'sk-ant-api03-...',
+    openai:    'sk-proj-...',
+    google:    'AIzaSy...',
+  };
+  $('apiKey').placeholder = placeholders[activeProvider] || 'Your API key';
+  $('keyLabel').textContent = { anthropic: 'Anthropic API Key', openai: 'OpenAI API Key', google: 'Google AI Studio Key' }[activeProvider] || 'API Key';
+
+  if (!silent) {
+    $('keyConnected').classList.remove('show');
+    $('keyInputArea').style.display = '';
+    $('apiKey').focus();
+  }
+  if (!silent && localStorage.getItem(PROV_KEY)) {
+    localStorage.removeItem(APIKEY_KEY);
+  }
+  updateBtn();
+}
+
+/* ── API key changes ────────────────────────────── */
+$('apiKey').addEventListener('input', () => {
+  if ($('rememberKey').checked) {
+    localStorage.setItem(PROV_KEY,   activeProvider);
+    localStorage.setItem(APIKEY_KEY, $('apiKey').value);
+  }
+  updateBtn();
+});
+
+$('rememberKey').addEventListener('change', function() {
+  if (this.checked) {
+    localStorage.setItem(PROV_KEY,   activeProvider);
+    localStorage.setItem(APIKEY_KEY, $('apiKey').value);
+  } else {
+    localStorage.removeItem(PROV_KEY);
+    localStorage.removeItem(APIKEY_KEY);
+  }
+});
+
+function toggleKeyVis() {
+  const inp = $('apiKey');
+  inp.type = inp.type === 'password' ? 'text' : 'password';
+}
+
+/* ── Tab switching ──────────────────────────────── */
+function switchTab(tab) {
+  activeTab = tab;
+  $('tabPhoto').classList.toggle('active', tab === 'photo');
+  $('tabText').classList.toggle('active',  tab === 'text');
+  $('photoPanel').style.display   = tab === 'photo' ? '' : 'none';
+  $('ocrText').style.display      = tab === 'text'  ? '' : 'none';
+  updateBtn();
+}
+
+$('ocrText').addEventListener('input', updateBtn);
+
+/* ── Drag / drop / file ─────────────────────────── */
+const dz = $('dropZone');
+['dragenter','dragover'].forEach(e => dz.addEventListener(e, ev => { ev.preventDefault(); dz.classList.add('over'); }));
+['dragleave','drop'].forEach(e =>     dz.addEventListener(e, ev => { ev.preventDefault(); dz.classList.remove('over'); }));
+dz.addEventListener('drop', ev => { const f = ev.dataTransfer?.files[0]; if (f) setFile(f); });
+$('fileInput').addEventListener('change', () => { if ($('fileInput').files[0]) setFile($('fileInput').files[0]); });
+
+function setFile(f) {
+  selectedFile = f;
+  const r = new FileReader();
+  r.onload = ev => { $('previewImg').src = ev.target.result; $('previewWrap').style.display = 'block'; };
+  r.readAsDataURL(f);
+  updateBtn();
+}
+
+/* ── Vehicle ────────────────────────────────────── */
+function selectVehicle(pill) {
+  document.querySelectorAll('.vpill').forEach(p => p.classList.remove('active'));
+  pill.classList.add('active');
+  vehicleType = pill.dataset.v;
+}
+
+function togglePermitZone() {
+  $('zoneRow').style.display = $('hasPermit').checked ? '' : 'none';
+}
+
+/* ── Enable check button ────────────────────────── */
+function updateBtn() {
+  const hasKey      = $('apiKey').value.trim().length > 5 ||
+                      ($('keyConnected').classList.contains('show') && localStorage.getItem(APIKEY_KEY));
+  const hasProvider = !!activeProvider;
+  const hasInput    = activeTab === 'text' ? $('ocrText').value.trim().length > 0 : !!selectedFile;
+  $('checkBtn').disabled = !(hasKey && hasProvider && hasInput);
+}
+
+/* ── Submit ─────────────────────────────────────── */
+$('checkBtn').addEventListener('click', async () => {
+  const apiKey = $('apiKey').value.trim() || localStorage.getItem(APIKEY_KEY) || '';
+  if (!apiKey || !activeProvider) return;
+
+  $('setupCard').style.opacity  = '.4';
+  $('setupCard').style.pointerEvents = 'none';
+  $('inputCard').style.display  = 'none';
+  $('howItWorks').style.display = 'none';
+  $('loader').style.display     = '';
+  $('results').style.display    = 'none';
+  $('errBox').style.display     = 'none';
+  $('loaderMsg').textContent    = 'Reading the sign with AI…';
+
+  try {
+    let data;
+    if (activeTab === 'photo') {
+      const fd = new FormData();
+      fd.append('image',        selectedFile);
+      fd.append('provider',     activeProvider);
+      fd.append('api_key',      apiKey);
+      fd.append('vehicle_type', vehicleType);
+      fd.append('has_disabled', $('hasDisabled').checked);
+      fd.append('has_permit',   $('hasPermit').checked);
+      fd.append('permit_zone',  $('permitZone').value);
+      fd.append('is_loading',   $('isLoading').checked);
+      const res = await fetch('/api/check', { method: 'POST', body: fd });
+      if (!res.ok) { const e = await res.json(); throw new Error(e.detail || `Server error ${res.status}`); }
+      data = await res.json();
+    } else {
+      const res = await fetch('/api/check-text', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({
+          sign_text:    $('ocrText').value,
+          provider:     activeProvider,
+          api_key:      apiKey,
+          vehicle_type: vehicleType,
+          has_disabled: $('hasDisabled').checked,
+          has_permit:   $('hasPermit').checked,
+          permit_zone:  $('permitZone').value,
+          is_loading:   $('isLoading').checked,
+        }),
+      });
+      if (!res.ok) { const e = await res.json(); throw new Error(e.detail || `Server error ${res.status}`); }
+      data = await res.json();
+    }
+
+    if ($('rememberKey').checked) showConnected();
+    render(data);
+
+  } catch (err) {
+    $('loader').style.display         = 'none';
+    $('inputCard').style.display      = '';
+    $('howItWorks').style.display     = '';
+    $('setupCard').style.opacity      = '1';
+    $('setupCard').style.pointerEvents = '';
+    $('errBox').style.display         = '';
+    $('errBox').textContent           = `⚠ ${err.message}`;
+  }
+});
+
+/* ── Reset ──────────────────────────────────────── */
+function resetUI() {
+  $('results').style.display         = 'none';
+  $('inputCard').style.display       = '';
+  $('howItWorks').style.display      = '';
+  $('setupCard').style.opacity       = '1';
+  $('setupCard').style.pointerEvents = '';
+  selectedFile = null;
+  $('previewWrap').style.display     = 'none';
+  $('previewImg').src                = '';
+  $('fileInput').value               = '';
+  $('ocrText').value                 = '';
+  updateBtn();
+}
+
+/* ══════════════════════════════════════════════════
+   RENDER
+══════════════════════════════════════════════════ */
+
+const DAYS          = ['MON','TUE','WED','THU','FRI','SAT','SUN'];
+const DISPLAY_START = 10;
+const DISPLAY_END   = 47;
+
+function render({ verdict, grid, sign_text, interpretation }) {
+  $('loader').style.display  = 'none';
+  $('results').style.display = '';
+  renderVerdict(verdict);
+  renderWarnings(verdict.warnings || []);
+  renderGrid(grid, verdict);
+  renderRules(verdict.triggered_rules || [], verdict);
+  $('signText').textContent    = sign_text || '(no text extracted)';
+  $('signInterp').textContent  = interpretation || '';
+}
+
+/* ── Verdict ────────────────────────────────────── */
+function renderVerdict(v) {
+  const b = $('verdictBanner');
+  const map = {
+    CAN_PARK:        { cls:'v-can',  bg:'YES' },
+    CANNOT_PARK:     { cls:'v-no',   bg:'NO'  },
+    TIMED_PARK:      { cls:'v-time', bg:'YES' },
+    PERMIT_REQUIRED: { cls:'v-perm', bg:'P'   },
+  };
+  const { cls, bg } = map[v.status] || map.CAN_PARK;
+  b.className = `verdict ${cls}`;
+  $('vEye').textContent  = `${v.current_day_full} · ${v.current_time}`;
+  $('vHead').textContent = v.headline || '';
+  $('vSub').textContent  = v.reason   || '';
+  $('vBg').textContent   = bg;
+
+  const pill = $('vPill');
+  if (v.next_change_at) {
+    const label = v.can_park
+      ? `Restriction starts at ${v.next_change_at}`
+      : `Opens at ${v.next_change_at}`;
+    pill.innerHTML = `<div class="v-pill"><span class="v-dot"></span>${label}</div>`;
+  } else {
+    pill.innerHTML = '';
+  }
+}
+
+/* ── Warnings ───────────────────────────────────── */
+function renderWarnings(ws) {
+  $('warnList').innerHTML = ws.map(w =>
+    `<div class="warn-item"><span class="warn-ico">⚠</span><span>${w}</span></div>`
+  ).join('');
+}
+
+/* ── Rules ──────────────────────────────────────── */
+function renderRules(rules, verdict) {
+  const el = $('ruleList');
+  if (!rules.length) {
+    el.innerHTML = '<div style="font-size:.82rem;color:var(--muted)">No specific rules fired for this moment.</div>';
+    return;
+  }
+  let html = rules.map(r => {
+    const cls   = r.blocking ? 'block' : (r.exemption_applied ? 'exempt' : 'pass');
+    const icon  = r.blocking ? '🚫' : '✓';
+    const note  = r.exemption_applied ? `<div class="rule-note">↳ ${r.exemption_applied}</div>` : '';
+    return `<div class="rule ${cls}"><div class="rule-title">${icon} ${r.description}</div>${note}</div>`;
+  }).join('');
+
+  if (verdict.max_duration_minutes) {
+    const h = Math.floor(verdict.max_duration_minutes / 60);
+    const m = verdict.max_duration_minutes % 60;
+    const dur = h && m ? `${h}h ${m}m` : h ? `${h}h` : `${m}m`;
+    html += `<div class="rule pass"><div class="rule-title">⏱ Max stay: ${dur}</div></div>`;
+  }
+  el.innerHTML = html;
+}
+
+/* ── Grid ───────────────────────────────────────── */
+function slotLabel(slot) {
+  const h = Math.floor(slot / 2);
+  return (slot % 2 === 0 && h % 2 === 0)
+    ? `${h % 12 || 12} ${h < 12 ? 'AM' : 'PM'}`
+    : '';
+}
+
+function renderGrid(grid, verdict) {
+  const nowSlot = verdict.current_slot;
+  const nowDay  = verdict.day_index;
+  const vis     = nowSlot >= DISPLAY_START && nowSlot <= DISPLAY_END;
+  const nowC    = Math.max(DISPLAY_START, Math.min(DISPLAY_END, nowSlot));
+
+  let html = '<div class="gh"></div>';
+  DAYS.forEach((d, i) => {
+    html += `<div class="gh${i === nowDay ? ' today' : ''}">${d}</div>`;
+  });
+
+  for (let slot = DISPLAY_START; slot <= DISPLAY_END; slot++) {
+    const isNow = vis && slot === nowC;
+    html += `<div class="tl${isNow ? ' now' : ''}">${slotLabel(slot)}</div>`;
+    DAYS.forEach((day, di) => {
+      const st  = ((grid[day] || []).find(s => s.slot === slot) || {}).status || 'CAN_PARK';
+      const cur = isNow && di === nowDay;
+      html += `<div class="gc ${st}${cur ? ' now-cell' : ''}"></div>`;
+    });
+    if (isNow) {
+      html += '<div class="yah-lbl">← NOW</div>';
+      DAYS.forEach((_, di) => {
+        html += `<div class="yah-bar${di === nowDay ? ' day' : ''}"></div>`;
+      });
+    }
+  }
+
+  $('parkGrid').innerHTML = html;
+}
+
+/* ── Init ───────────────────────────────────────── */
+loadSaved();
+switchTab('photo');
+</script>
+
+</body>
+</html>
