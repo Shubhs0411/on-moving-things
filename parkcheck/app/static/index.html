@@ -521,10 +521,11 @@ MON 8AM – 10AM"></textarea>
 <script>
 /* ── State ──────────────────────────────────────── */
 const $ = id => document.getElementById(id);
-let activeProvider = '';
-let activeTab      = 'photo';
-let selectedFile   = null;
-let vehicleType    = 'regular';
+let activeProvider    = '';
+let activeTab         = 'photo';
+let selectedFile      = null;
+let vehicleType       = 'regular';
+let serverKeyReady    = false;   // true when DEFAULT_API_KEY is set on the server
 
 /* ── Persist key ────────────────────────────────── */
 const PROV_KEY    = 'parkcheck_provider';
@@ -645,17 +646,20 @@ function togglePermitZone() {
 
 /* ── Enable check button ────────────────────────── */
 function updateBtn() {
-  const hasKey      = $('apiKey').value.trim().length > 5 ||
+  const hasKey      = serverKeyReady ||
+                      $('apiKey').value.trim().length > 5 ||
                       ($('keyConnected').classList.contains('show') && localStorage.getItem(APIKEY_KEY));
-  const hasProvider = !!activeProvider;
+  const hasProvider = serverKeyReady || !!activeProvider;
   const hasInput    = activeTab === 'text' ? $('ocrText').value.trim().length > 0 : !!selectedFile;
   $('checkBtn').disabled = !(hasKey && hasProvider && hasInput);
 }
 
 /* ── Submit ─────────────────────────────────────── */
 $('checkBtn').addEventListener('click', async () => {
-  const apiKey = $('apiKey').value.trim() || localStorage.getItem(APIKEY_KEY) || '';
-  if (!apiKey || !activeProvider) return;
+  // When the server has a pre-configured key, send empty strings — backend fills them in
+  const apiKey  = serverKeyReady ? '' : ($('apiKey').value.trim() || localStorage.getItem(APIKEY_KEY) || '');
+  const provStr = serverKeyReady ? '' : activeProvider;
+  if (!serverKeyReady && (!apiKey || !activeProvider)) return;
 
   $('setupCard').style.opacity  = '.4';
   $('setupCard').style.pointerEvents = 'none';
@@ -671,7 +675,7 @@ $('checkBtn').addEventListener('click', async () => {
     if (activeTab === 'photo') {
       const fd = new FormData();
       fd.append('image',        selectedFile);
-      fd.append('provider',     activeProvider);
+      fd.append('provider',     provStr);
       fd.append('api_key',      apiKey);
       fd.append('vehicle_type', vehicleType);
       fd.append('has_disabled', $('hasDisabled').checked);
@@ -686,7 +690,7 @@ $('checkBtn').addEventListener('click', async () => {
         method: 'POST', headers: {'Content-Type':'application/json'},
         body: JSON.stringify({
           sign_text:    $('ocrText').value,
-          provider:     activeProvider,
+          provider:     provStr,
           api_key:      apiKey,
           vehicle_type: vehicleType,
           has_disabled: $('hasDisabled').checked,
@@ -843,8 +847,27 @@ function renderGrid(grid, verdict) {
 }
 
 /* ── Init ───────────────────────────────────────── */
-loadSaved();
-switchTab('photo');
+async function init() {
+  // Check whether the server has a pre-configured API key
+  try {
+    const cfg = await fetch('/api/config').then(r => r.json());
+    if (cfg.server_key_configured) {
+      serverKeyReady = true;
+      // Hide the whole setup card — no key needed from the user
+      $('setupCard').style.display = 'none';
+      if (cfg.default_provider) {
+        activeProvider = cfg.default_provider;
+        const card = document.querySelector(`.provider-card[data-p="${cfg.default_provider}"]`);
+        if (card) card.classList.add('active');
+      }
+    }
+  } catch (_) { /* config endpoint unavailable — normal for local dev */ }
+
+  loadSaved();
+  switchTab('photo');
+  updateBtn();
+}
+init();
 </script>
 
 </body>

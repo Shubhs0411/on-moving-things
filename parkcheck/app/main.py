@@ -1,13 +1,19 @@
+import os
 from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from .models import VehicleContext, VehicleType
 from .providers import Provider, parse_ocr_text, parse_sign_image
 from .rule_engine import generate_weekly_grid, get_current_verdict
+
+# Optional server-side defaults (set in .env for a shared/hosted instance).
+# When set, the frontend hides the API key field and uses these automatically.
+_DEFAULT_PROVIDER = os.getenv("DEFAULT_PROVIDER", "").strip().lower() or None
+_DEFAULT_API_KEY  = os.getenv("DEFAULT_API_KEY",  "").strip()         or None
 
 app = FastAPI(
     title="Can I Park Here?",
@@ -67,6 +73,15 @@ async def health():
     return {"status": "ok", "version": "1.0.0"}
 
 
+@app.get("/api/config", summary="Public app configuration")
+async def config():
+    """Tells the frontend whether a server-side API key is pre-configured."""
+    return {
+        "server_key_configured": bool(_DEFAULT_PROVIDER and _DEFAULT_API_KEY),
+        "default_provider": _DEFAULT_PROVIDER or None,
+    }
+
+
 @app.post("/api/check", summary="Check parking sign from photo")
 async def check_image(
     image:        UploadFile = File(..., description="Parking sign photo (JPEG/PNG/WEBP)"),
@@ -78,11 +93,17 @@ async def check_image(
     permit_zone:  str  = Form(default=""),
     is_loading:   bool = Form(default=False),
 ):
+    # Allow server-side default to override an empty key from the client
+    effective_key      = api_key.strip()      or _DEFAULT_API_KEY or ""
+    effective_provider = provider.strip()     or _DEFAULT_PROVIDER or ""
+    if not effective_key:
+        raise HTTPException(status_code=400, detail="No API key provided. Enter one in the app or set DEFAULT_API_KEY in .env")
+
     contents   = await image.read()
     media_type = image.content_type or "image/jpeg"
 
     try:
-        parsed = parse_sign_image(contents, media_type, _provider(provider), api_key)
+        parsed = parse_sign_image(contents, media_type, _provider(effective_provider), effective_key)
     except Exception as exc:
         raise HTTPException(status_code=422, detail=str(exc))
 
@@ -112,8 +133,13 @@ async def check_text(req: TextRequest):
     if not req.sign_text.strip():
         raise HTTPException(status_code=422, detail="sign_text must not be empty")
 
+    effective_key      = req.api_key.strip()   or _DEFAULT_API_KEY  or ""
+    effective_provider = req.provider.strip()  or _DEFAULT_PROVIDER or ""
+    if not effective_key:
+        raise HTTPException(status_code=400, detail="No API key provided. Enter one in the app or set DEFAULT_API_KEY in .env")
+
     try:
-        parsed = parse_ocr_text(req.sign_text, _provider(req.provider), req.api_key)
+        parsed = parse_ocr_text(req.sign_text, _provider(effective_provider), effective_key)
     except Exception as exc:
         raise HTTPException(status_code=422, detail=str(exc))
 
